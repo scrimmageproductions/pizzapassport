@@ -1,0 +1,47 @@
+{
+  "identifier" : "3E9F2B7A-4C4E-4C11-9C2E-4A1D2F6B0A11",
+  "nonRenewingSubscriptions" : [],
+  "products" : [],
+  "settings" : {
+    "_billingIssuesEnabled" : false,
+    "_disableDialogs" : false,
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : []
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "21504711",
+      "localizations" : [],
+      "name" : "Pizza Passport VIP",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "1.00",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "6737189501",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Unlock social feed posting, global feed discovery, and cloud backup.",
+              "displayName" : "Pizza Passport VIP",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.rarepizzas.pizzapassport.vip.yearly",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Pizza Passport VIP Yearly",
+          "subscriptionGroupID" : "21504711",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}
