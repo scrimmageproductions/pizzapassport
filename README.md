@@ -12,6 +12,8 @@ stories.
 - CoreLocation + MapKit for restaurant search
 - StoreKit 2 for the VIP subscription
 - `ImageRenderer` + `PhotosUI` + `ShareLink` for the story exporter
+- Supabase (Auth, Storage, Postgres) for cloud sync and the public web profile
+- Next.js 14 (App Router) + Tailwind CSS for the public passport viewer (`/web`)
 
 ## Project layout
 
@@ -30,11 +32,12 @@ PizzaPassport/
 │   ├── StampInkFilter.swift          Core Image rubber-stamp pipeline
 │   ├── LogoFetchService.swift        Remote logo fetch (Places / favicon)
 │   ├── LocationService.swift         CoreLocation + MKLocalSearchCompleter
-│   └── StoreKitManager.swift         StoreKit 2 product + entitlement logic
+│   ├── StoreKitManager.swift         StoreKit 2 product + entitlement logic
+│   └── SupabaseService.swift         Auth, Storage uploads, DB sync
 ├── Utilities/
 │   └── QRCodeGenerator.swift
 ├── ViewModels/
-│   └── PassportStore.swift           Local persistence of check-ins
+│   └── PassportStore.swift           Offline-first store, synced to Supabase
 ├── Theme/
 │   └── PizzaTheme.swift              Colors, fonts, button styles
 ├── Views/
@@ -47,7 +50,13 @@ PizzaPassport/
 │   └── Paywall/PaywallView.swift     StoreKit 2 paywall
 └── Resources/
     ├── Info.plist                    Usage-description keys
-    └── PizzaPassport.storekit        Local StoreKit testing config
+    ├── PizzaPassport.storekit        Local StoreKit testing config
+    └── schema.sql                    Supabase tables, RLS policies, storage bucket
+
+web/                                  Public passport viewer — see web/README.md
+├── app/layout.tsx, app/page.tsx, app/u/[username]/page.tsx
+├── components/StampGrid.tsx, EntryCard.tsx, AppStoreBanner.tsx
+└── lib/supabase/server.ts, lib/types.ts
 ```
 
 ## Setting up the Xcode project
@@ -63,19 +72,27 @@ takes a few minutes:
    navigator (choose "Create groups", target membership checked).
 4. In **Signing & Capabilities**, add:
    - **In-App Purchase** (required for StoreKit 2).
-5. Merge the keys from `Resources/Info.plist` into your target's Info.plist
+5. Add the Supabase Swift SDK: **File → Add Package Dependencies…**, URL
+   `https://github.com/supabase/supabase-swift`, and add the **Supabase**
+   library to the app target (required by `SupabaseService.swift`).
+6. Merge the keys from `Resources/Info.plist` into your target's Info.plist
    (or point the target directly at this file).
-6. To test the VIP purchase locally: **Product → Scheme → Edit Scheme →
+7. To test the VIP purchase locally: **Product → Scheme → Edit Scheme →
    Run → Options**, set **StoreKit Configuration** to
    `Resources/PizzaPassport.storekit`.
-7. Set your bundle identifier so it's consistent with
+8. Set your bundle identifier so it's consistent with
    `APIConfig.vipProductID` (`com.rarepizzas.pizzapassport.vip.yearly`), or
    update that constant to match your own reverse-DNS ID.
 
-## API keys
+## API keys & backend config
 
 Open `Configuration/APIConfig.swift` and replace the placeholders:
 
+- `supabaseURL` / `supabaseAnonKey` — from your Supabase project's
+  Settings → API page. Run `Resources/schema.sql` in the Supabase SQL
+  Editor first (see below) so the expected tables/bucket exist.
+- `vercelWebDomain` — the deployed `/web` app's domain (no trailing
+  slash), used to build public profile links and their QR codes.
 - `googlePlacesAPIKey` — powers restaurant search/photo lookups if you wire
   up the Google Places REST API (see `PlaceSearchService.googlePlacesPhotoURL`
   for the integration point; MapKit is used out of the box and needs no key).
@@ -84,6 +101,27 @@ Open `Configuration/APIConfig.swift` and replace the placeholders:
 
 Never commit real keys — use an `.xcconfig` file excluded via `.gitignore`,
 or inject them at build time in CI.
+
+## Backend setup (Supabase)
+
+1. Create a project at [supabase.com](https://supabase.com).
+2. Open the SQL Editor and run `PizzaPassport/Resources/schema.sql` — it
+   creates `public.profiles`, `public.entries`, their Row Level Security
+   policies (public read, owner-only write), and the public `pizza-photos`
+   Storage bucket.
+3. Copy the project URL and anon key into `APIConfig.swift` (or your
+   `.xcconfig` secrets).
+4. `PassportStore` signs users in anonymously on first launch (no login
+   screen required) so every install can sync check-ins to the cloud;
+   `SupabaseService` also exposes email/password and Sign in with Apple for
+   upgrading that session to a permanent account.
+
+## Web viewer (`/web`)
+
+A public, read-only Next.js passport viewer lives in `/web` — see
+`web/README.md` for local dev and Vercel deployment steps. It reads
+directly from the same Supabase tables via the public-read RLS policies,
+so no separate API layer is needed.
 
 ## Notes on the ink stamp generator
 

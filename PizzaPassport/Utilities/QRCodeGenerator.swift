@@ -18,4 +18,11 @@ enum QRCodeGenerator {
         }
         return UIImage(cgImage: cgImage)
     }
+
+    /// Generates a QR code pointing at a user's public web passport, e.g.
+    /// `\(APIConfig.vercelWebDomain)/u/<username>` — the canonical link
+    /// shared from story exports and profile share sheets.
+    static func profileCode(for username: String, scale: CGFloat = 10) -> UIImage {
+        image(from: APIConfig.profileURL(username: username).absoluteString, scale: scale)
+    }
 }

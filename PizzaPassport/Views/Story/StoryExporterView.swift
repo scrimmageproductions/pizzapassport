@@ -108,12 +108,12 @@ struct StoryExporterView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("@\(store.profileHandle)")
                             .font(.caption.weight(.bold))
-                        Text("pizzapassport.app")
+                        Text(store.publicProfileURL.host ?? APIConfig.vercelWebDomain)
                             .font(.caption2)
                             .opacity(0.6)
                     }
                     Spacer()
-                    Image(uiImage: QRCodeGenerator.image(from: store.publicProfileURL.absoluteString))
+                    Image(uiImage: QRCodeGenerator.profileCode(for: store.profileHandle))
                         .interpolation(.none)
                         .resizable()
                         .frame(width: 54, height: 54)
