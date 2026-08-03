@@ -1,6 +1,12 @@
 import Foundation
 import Supabase
 
+enum SupabaseServiceError: Error {
+    /// Thrown by calls that require a signed-in user but no session (not
+    /// even an anonymous one) could be established.
+    case notAuthenticated
+}
+
 /// Thin async/await wrapper around the Supabase Swift SDK for
 /// authentication, check-in photo storage, and passport persistence.
 ///
@@ -62,25 +68,26 @@ actor SupabaseService {
     // MARK: - Storage
 
     /// Uploads a single image to the public `pizza-photos` bucket and
-    /// returns its public URL.
-    func uploadPhoto(_ data: Data, path: String) async throws -> URL {
+    /// returns its public URL as a string.
+    func uploadPhoto(_ data: Data, path: String) async throws -> String {
         try await client.storage.from(photosBucket).upload(
             path: path,
             file: data,
             options: FileOptions(contentType: "image/jpeg", upsert: true)
         )
-        return try client.storage.from(photosBucket).getPublicURL(path: path)
+        let publicURL = try client.storage.from(photosBucket).getPublicURL(path: path)
+        return publicURL.absoluteString
     }
 
     /// Uploads both required check-in photos plus the generated ink stamp,
     /// namespaced under the entry's own identifier so re-syncing an edited
     /// entry overwrites the same objects.
-    func uploadCheckInPhotos(
+    private func uploadCheckInPhotos(
         entryID: UUID,
         atmosphere: Data,
         selfie: Data,
         stamp: Data
-    ) async throws -> (venueURL: URL, selfieURL: URL, stampURL: URL) {
+    ) async throws -> (venueURL: String, selfieURL: String, stampURL: String) {
         async let venue = uploadPhoto(atmosphere, path: "\(entryID)/venue.jpg")
         async let action = uploadPhoto(selfie, path: "\(entryID)/selfie.jpg")
         async let stampUpload = uploadPhoto(stamp, path: "\(entryID)/stamp.png")
@@ -108,20 +115,41 @@ actor SupabaseService {
         try await client.from("profiles").upsert(profile, onConflict: "id").execute()
     }
 
-    /// Fetches every check-in belonging to a signed-in user, newest first.
-    func fetchUserEntries(userID: UUID) async throws -> [RemoteEntry] {
-        try await client
+    /// Fetches every check-in belonging to a public username, newest
+    /// first, downloading photos/stamp so each row comes back as a fully
+    /// offline-capable `PizzaEntry`. Returns an empty array if the
+    /// username doesn't exist.
+    func fetchUserEntries(username: String) async throws -> [PizzaEntry] {
+        guard let profile = try await fetchProfile(username: username) else {
+            return []
+        }
+
+        let rows: [RemoteEntry] = try await client
             .from("entries")
             .select()
-            .eq("user_id", value: userID)
+            .eq("user_id", value: profile.id)
             .order("created_at", ascending: false)
             .execute()
             .value
+
+        var hydratedEntries: [PizzaEntry] = []
+        for row in rows {
+            if let entry = await row.hydrated() {
+                hydratedEntries.append(entry)
+            }
+        }
+        return hydratedEntries
     }
 
-    /// Uploads photos, then upserts the check-in row. Call after
-    /// `ensureSession()` has produced a signed-in (possibly anonymous) user.
-    func saveEntry(_ entry: PizzaEntry, userID: UUID) async throws {
+    /// Uploads photos, then upserts the check-in row under the current
+    /// session's user. Call `ensureSession()` (and, for a first sync,
+    /// `ensureProfile`) beforehand — this throws `.notAuthenticated` if no
+    /// session exists yet.
+    func saveEntry(_ entry: PizzaEntry) async throws {
+        guard let userID = await currentUserID() else {
+            throw SupabaseServiceError.notAuthenticated
+        }
+
         let uploads = try await uploadCheckInPhotos(
             entryID: entry.id,
             atmosphere: entry.atmospherePhotoData,
@@ -182,7 +210,8 @@ struct RemoteProfile: Codable, Sendable {
 
 /// Codable mirror of the `public.entries` table — the wire format used to
 /// sync a `PizzaEntry` to and from Supabase. Photo/stamp blobs live in
-/// Storage rather than the database, so this type carries URLs, not `Data`.
+/// Storage rather than the database, so this type carries URL strings, not
+/// `Data`.
 struct RemoteEntry: Codable, Sendable, Identifiable {
     var id: UUID
     var userID: UUID
@@ -191,9 +220,9 @@ struct RemoteEntry: Codable, Sendable, Identifiable {
     var longitude: Double
     var rating: Double
     var crustType: String
-    var venuePhotoURL: URL
-    var selfiePhotoURL: URL
-    var stampImageURL: URL
+    var venuePhotoURL: String
+    var selfiePhotoURL: String
+    var stampImageURL: String
     var inkColor: String
     var createdAt: Date
 
@@ -214,17 +243,20 @@ struct RemoteEntry: Codable, Sendable, Identifiable {
 extension RemoteEntry {
     /// Downloads the venue, selfie, and stamp images so this remote row can
     /// be materialized into a fully offline-capable `PizzaEntry` for local
-    /// caching. Returns `nil` if any asset fails to download or the
-    /// crust/ink enums no longer match a known case.
+    /// caching. Returns `nil` if any URL/asset is invalid or unreachable,
+    /// or the crust/ink enums no longer match a known case.
     func hydrated() async -> PizzaEntry? {
         guard let crust = CrustType(rawValue: crustType),
-              let ink = StampInkColor(rawValue: inkColor) else {
+              let ink = StampInkColor(rawValue: inkColor),
+              let venueURL = URL(string: venuePhotoURL),
+              let selfieURL = URL(string: selfiePhotoURL),
+              let stampURL = URL(string: stampImageURL) else {
             return nil
         }
 
-        guard let venueData = try? await Self.downloadData(venuePhotoURL),
-              let selfieData = try? await Self.downloadData(selfiePhotoURL),
-              let stampData = try? await Self.downloadData(stampImageURL) else {
+        guard let venueData = try? await Self.downloadData(venueURL),
+              let selfieData = try? await Self.downloadData(selfieURL),
+              let stampData = try? await Self.downloadData(stampURL) else {
             return nil
         }
 

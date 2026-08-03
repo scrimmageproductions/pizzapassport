@@ -66,7 +66,7 @@ final class PassportStore: ObservableObject {
             try await supabase.ensureSession()
             guard let userID = await supabase.currentUserID() else { return }
             try await supabase.ensureProfile(userID: userID, username: profileHandle)
-            await pullRemoteEntries(userID: userID)
+            await pullRemoteEntries()
         } catch {
             // Offline or unreachable — the local-first store keeps working
             // and will retry sync on the next launch or check-in.
@@ -74,22 +74,18 @@ final class PassportStore: ObservableObject {
         }
     }
 
-    private func pullRemoteEntries(userID: UUID) async {
+    private func pullRemoteEntries() async {
         isSyncing = true
         defer { isSyncing = false }
 
         do {
-            let remoteRows = try await supabase.fetchUserEntries(userID: userID)
-            var didAddEntry = false
-
-            for row in remoteRows where !entries.contains(where: { $0.id == row.id }) {
-                if let hydrated = await row.hydrated() {
-                    entries.append(hydrated)
-                    didAddEntry = true
-                }
+            let remoteEntries = try await supabase.fetchUserEntries(username: profileHandle)
+            let newEntries = remoteEntries.filter { remote in
+                !entries.contains { $0.id == remote.id }
             }
 
-            if didAddEntry {
+            if !newEntries.isEmpty {
+                entries.append(contentsOf: newEntries)
                 entries.sort { $0.date > $1.date }
                 save()
             }
@@ -107,7 +103,7 @@ final class PassportStore: ObservableObject {
             try await supabase.ensureSession()
             guard let userID = await supabase.currentUserID() else { return }
             try await supabase.ensureProfile(userID: userID, username: profileHandle)
-            try await supabase.saveEntry(entry, userID: userID)
+            try await supabase.saveEntry(entry)
             syncError = nil
         } catch {
             syncError = "Saved locally — couldn't sync to the cloud yet: \(error.localizedDescription)"

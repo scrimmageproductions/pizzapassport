@@ -10,7 +10,7 @@ const config: Config = {
         mozzarella: "#FFFDD0",
         charcoal: "#1C1C1E",
         crust: "#D1A34F",
-        basil: "#336B45",
+        basil: "#2E7D32",
       },
       fontFamily: {
         serif: ["Georgia", "ui-serif", "serif"],
