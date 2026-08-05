@@ -10,6 +10,7 @@ import clsx from "clsx";
 import { useLocalProfile } from "@/lib/useLocalProfile";
 import { getBrowserSupabaseClient } from "@/lib/supabase/client";
 import { getCurrentPosition, GeolocationDeniedError } from "@/lib/geo";
+import { loadLocalEntries } from "@/lib/localEntries";
 import type { Entry } from "@/lib/types";
 import PlateRating from "@/components/PlateRating";
 import CheckeredBand from "@/components/CheckeredBand";
@@ -18,9 +19,10 @@ import SauceSplatter from "@/components/SauceSplatter";
 const STAMPS_PER_PAGE = 6;
 
 export default function PassportPage() {
-  const { userId, username, isReady, setUsername } = useLocalProfile();
+  const { userId, username, isReady, isOfflineMode, setUsername } = useLocalProfile();
   const [entries, setEntries] = useState<Entry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
   const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null);
 
@@ -29,23 +31,38 @@ export default function PassportPage() {
     let cancelled = false;
 
     async function load() {
-      const supabase = getBrowserSupabaseClient();
-      const { data } = await supabase
-        .from("entries")
-        .select("*")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false })
-        .returns<Entry[]>();
-      if (!cancelled) {
-        setEntries(data ?? []);
-        setIsLoading(false);
+      try {
+        if (isOfflineMode) {
+          if (!cancelled) setEntries(loadLocalEntries());
+          return;
+        }
+
+        const supabase = getBrowserSupabaseClient();
+        const { data, error } = await supabase
+          .from("entries")
+          .select("*")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: false })
+          .returns<Entry[]>();
+        if (error) throw error;
+        if (!cancelled) setEntries(data ?? []);
+      } catch (error) {
+        // Never let a network/Supabase failure leave the page stuck on the
+        // loading spinner — show what's cached on-device (if anything) and
+        // surface a non-blocking banner instead.
+        if (!cancelled) {
+          setLoadError(error instanceof Error ? error.message : "Couldn't load your passport from the cloud.");
+          setEntries(loadLocalEntries());
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
       }
     }
     load();
     return () => {
       cancelled = true;
     };
-  }, [isReady, userId]);
+  }, [isReady, userId, isOfflineMode]);
 
   const pages = useMemo(() => {
     const chunks: Entry[][] = [];
@@ -77,14 +94,26 @@ export default function PassportPage() {
     <div className="space-y-6">
       <header className="text-center">
         <UsernameEditor username={username} onSave={setUsername} />
-        <p className="text-sm text-mozzarella/50">
-          Every stamp, one page at a time — public at{" "}
-          <Link href={`/u/${username}`} className="text-crust hover:underline">
-            /u/{username}
-          </Link>
-        </p>
+        {isOfflineMode ? (
+          <p className="text-sm text-mozzarella/50">
+            🔌 Working offline — saved on this device only, not published to /u/{username} yet.
+          </p>
+        ) : (
+          <p className="text-sm text-mozzarella/50">
+            Every stamp, one page at a time — public at{" "}
+            <Link href={`/u/${username}`} className="text-crust hover:underline">
+              /u/{username}
+            </Link>
+          </p>
+        )}
         <CheckeredBand className="mx-auto mt-4 max-w-[160px] rounded-full opacity-70" />
       </header>
+
+      {loadError ? (
+        <div className="rounded-xl border border-tomato/40 bg-tomato/10 px-4 py-3 text-center text-sm text-tomato">
+          Couldn&apos;t reach the cloud ({loadError}) — showing what&apos;s saved on this device.
+        </div>
+      ) : null}
 
       <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] p-4">
         <div aria-hidden="true" className="absolute inset-0 bg-cornmeal opacity-[0.2]" />
@@ -263,8 +292,8 @@ function EmptyState() {
       <SauceSplatter className="absolute -right-4 -top-4" size={90} opacity={0.3} />
       <div className="relative flex flex-col items-center gap-4">
         <span className="text-4xl">🍕</span>
-        <h2 className="font-serif text-xl font-bold text-mozzarella">Your passport is empty</h2>
-        <p className="text-sm text-mozzarella/60">Get your first stamp in under 30 seconds.</p>
+        <h2 className="font-serif text-xl font-bold text-mozzarella">No pizza stamps yet!</h2>
+        <p className="text-sm text-mozzarella/60">Tap &ldquo;Check In&rdquo; to log your first slice — under 30 seconds.</p>
 
         <button
           onClick={handleFindNearby}
@@ -272,12 +301,12 @@ function EmptyState() {
           className="flex items-center gap-2 rounded-full bg-tomato px-6 py-2.5 text-sm font-bold text-mozzarella disabled:opacity-60"
         >
           <MapPin className="h-4 w-4" />
-          {locating ? "Finding pizza near you…" : "Check in at a pizzeria near you"}
+          {locating ? "Finding pizza near you…" : "Check In Now"}
         </button>
         {error ? <p className="text-xs text-tomato">{error}</p> : null}
 
         <Link href="/check-in" className="text-xs text-mozzarella/40 underline">
-          or check in manually
+          or search for it manually
         </Link>
       </div>
     </div>

@@ -21,6 +21,7 @@ import {
   type Coordinates,
 } from "@/lib/geo";
 import { CRUST_TYPES, INK_COLORS, type InkColor } from "@/lib/constants";
+import { loadLocalEntries, saveLocalEntry, saveLocalMoment, compressImageToDataUrl } from "@/lib/localEntries";
 import PlateRating from "@/components/PlateRating";
 import PolaroidCard from "@/components/PolaroidCard";
 import SauceSplatter from "@/components/SauceSplatter";
@@ -43,7 +44,7 @@ export default function CheckInPage() {
 function CheckInFlow() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { userId, isReady, username, setUsername } = useLocalProfile();
+  const { userId, isReady, username, isOfflineMode, setUsername } = useLocalProfile();
 
   const [step, setStep] = useState<Step>("place");
   const [restaurantName, setRestaurantName] = useState("");
@@ -90,18 +91,28 @@ function CheckInFlow() {
     if (!isReady || !userId) return;
     let cancelled = false;
     async function checkFirstEntry() {
-      const supabase = getBrowserSupabaseClient();
-      const { count } = await supabase
-        .from("entries")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", userId);
-      if (!cancelled) setIsFirstCheckIn((count ?? 0) === 0);
+      if (isOfflineMode) {
+        if (!cancelled) setIsFirstCheckIn(loadLocalEntries().length === 0);
+        return;
+      }
+      try {
+        const supabase = getBrowserSupabaseClient();
+        const { count, error } = await supabase
+          .from("entries")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", userId);
+        if (error) throw error;
+        if (!cancelled) setIsFirstCheckIn((count ?? 0) === 0);
+      } catch {
+        // Non-critical — worst case a returning visitor sees the first-stamp
+        // celebration again, which never blocks anything downstream.
+      }
     }
     checkFirstEntry();
     return () => {
       cancelled = true;
     };
-  }, [isReady, userId]);
+  }, [isReady, userId, isOfflineMode]);
 
   // One-tap entry from the passport's empty state: /check-in?lat=&lng=
   // arrives with coordinates already resolved, so nearby search can start
@@ -227,8 +238,45 @@ function CheckInFlow() {
     setSaveError(null);
 
     try {
-      const supabase = getBrowserSupabaseClient();
       const entryId = crypto.randomUUID();
+      const entryCoords = selectedPlace ? { lat: selectedPlace.lat, lng: selectedPlace.lng } : coords;
+      // Every check-in gets a place_id now — either the matched OpenStreetMap
+      // venue, or a synthesized one for manual entries — so it always groups
+      // under a pizzeria (see schema_moments.sql) instead of only ever
+      // living on this one user's passport.
+      const placeId = selectedPlace?.id ?? synthesizePlaceId(restaurantName, coords);
+      const claimMethod = selectedPlace ? "geo" : "manual";
+
+      if (isOfflineMode) {
+        // No Supabase reachable — compress photos to small data URLs and
+        // keep the whole check-in on-device instead of failing the save.
+        const [venueDataUrl, selfieDataUrl] = await Promise.all([
+          compressImageToDataUrl(venueFile),
+          compressImageToDataUrl(selfieFile),
+        ]);
+        saveLocalEntry({
+          id: entryId,
+          user_id: userId,
+          restaurant_name: restaurantName,
+          latitude: entryCoords.lat,
+          longitude: entryCoords.lng,
+          rating,
+          crust_type: crust,
+          venue_photo_url: venueDataUrl,
+          selfie_photo_url: selfieDataUrl,
+          stamp_image_url: stampPreview,
+          ink_color: inkColor,
+          place_id: placeId,
+          serial_number: loadLocalEntries().length + 1,
+          claim_method: claimMethod,
+          created_at: new Date().toISOString(),
+        });
+        setSavedEntryId(entryId);
+        setPostSaveStage(isFirstCheckIn ? "celebration" : "moment");
+        return;
+      }
+
+      const supabase = getBrowserSupabaseClient();
 
       const [venueUpload, selfieUpload] = await Promise.all([
         supabase.storage.from("pizza-photos").upload(`${entryId}/venue.jpg`, venueFile, { upsert: true }),
@@ -247,17 +295,6 @@ function CheckInFlow() {
       const selfieUrl = supabase.storage.from("pizza-photos").getPublicUrl(`${entryId}/selfie.jpg`).data.publicUrl;
       const stampUrl = supabase.storage.from("pizza-photos").getPublicUrl(`${entryId}/stamp.png`).data.publicUrl;
 
-      // Prefer the geocoded venue's coordinates (more precise than a phone's
-      // live GPS fix) when a nearby place was selected; fall back to the
-      // device's own position for manually-typed entries.
-      const entryCoords = selectedPlace ? { lat: selectedPlace.lat, lng: selectedPlace.lng } : coords;
-
-      // Every check-in gets a place_id now — either the matched OpenStreetMap
-      // venue, or a synthesized one for manual entries — so it always groups
-      // under a public.pizzerias row (see schema_moments.sql) instead of only
-      // ever living on this one user's passport.
-      const placeId = selectedPlace?.id ?? synthesizePlaceId(restaurantName, coords);
-
       const { error: insertError } = await supabase.from("entries").insert({
         id: entryId,
         user_id: userId,
@@ -271,7 +308,7 @@ function CheckInFlow() {
         stamp_image_url: stampUrl,
         ink_color: inkColor,
         place_id: placeId,
-        claim_method: selectedPlace ? "geo" : "manual",
+        claim_method: claimMethod,
       });
       if (insertError) throw insertError;
 
@@ -286,6 +323,15 @@ function CheckInFlow() {
 
   async function handleSaveMoment({ photo, note }: { photo: File | null; note: string }) {
     if (!savedEntryId || !userId || !coords) return;
+
+    if (isOfflineMode) {
+      const photoDataUrl = photo ? await compressImageToDataUrl(photo) : null;
+      saveLocalMoment(savedEntryId, note, photoDataUrl);
+      setMomentNote(note);
+      setPostSaveStage("review");
+      return;
+    }
+
     const supabase = getBrowserSupabaseClient();
     const placeId = selectedPlace?.id ?? synthesizePlaceId(restaurantName, coords);
 
@@ -312,6 +358,11 @@ function CheckInFlow() {
     setPostSaveStage("review");
   }
 
+  // Local demo-mode entries only ever live in this browser's localStorage —
+  // `/story/[id]` fetches from Supabase and would 404 on them, so offline
+  // check-ins land on the passport itself instead.
+  const goToFinalDestination = () => router.push(isOfflineMode ? "/passport" : `/story/${savedEntryId}`);
+
   if (!isReady) {
     return <p className="py-20 text-center text-mozzarella/50">Setting up your passport…</p>;
   }
@@ -336,7 +387,7 @@ function CheckInFlow() {
           <MomentComposer
             restaurantName={restaurantName}
             onSave={handleSaveMoment}
-            onSkip={() => router.push(`/story/${savedEntryId}`)}
+            onSkip={goToFinalDestination}
           />
         </div>
       </div>
@@ -353,7 +404,7 @@ function CheckInFlow() {
             rating={rating}
             note={momentNote}
             coords={coords}
-            onDismiss={() => router.push(`/story/${savedEntryId}`)}
+            onDismiss={goToFinalDestination}
           />
         </div>
       </div>
@@ -364,6 +415,11 @@ function CheckInFlow() {
     <div className="relative mx-auto max-w-xl space-y-6 overflow-hidden rounded-3xl border border-white/10 bg-white/[0.02] p-6">
       <div aria-hidden="true" className="absolute inset-0 bg-cornmeal opacity-[0.14]" />
       <div className="relative space-y-6">
+        {isOfflineMode ? (
+          <p className="rounded-xl border border-crust/30 bg-crust/10 px-4 py-2 text-center text-xs font-semibold text-crust">
+            🔌 Working offline — this check-in will be saved on this device only.
+          </p>
+        ) : null}
         <ProgressBar stepIndex={stepIndex} total={STEPS.length} />
 
         {step === "place" && (
