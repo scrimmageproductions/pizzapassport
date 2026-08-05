@@ -1,4 +1,5 @@
 import Image from "next/image";
+import Link from "next/link";
 import type { Entry } from "@/lib/types";
 import { INK_COLORS, type InkColor } from "@/lib/constants";
 
@@ -62,9 +63,16 @@ export default function EntryCard({ entry }: { entry: Entry }) {
         ) : null}
 
         <div className="min-w-0 flex-1">
-          <h3 className="truncate font-serif text-lg font-bold text-mozzarella">
-            {entry.restaurant_name}
-          </h3>
+          {entry.place_id ? (
+            <Link
+              href={`/place/${encodeURIComponent(entry.place_id)}`}
+              className="block truncate font-serif text-lg font-bold text-mozzarella hover:text-crust"
+            >
+              {entry.restaurant_name}
+            </Link>
+          ) : (
+            <h3 className="truncate font-serif text-lg font-bold text-mozzarella">{entry.restaurant_name}</h3>
+          )}
           <p className="text-xs uppercase tracking-wide text-mozzarella/50">
             {entry.crust_type} · {formatDate(entry.created_at)}
           </p>

@@ -14,6 +14,7 @@ import {
   reverseGeocode,
   searchNearbyPizzerias,
   haversineDistanceMeters,
+  synthesizePlaceId,
   MAX_CHECKIN_DISTANCE_METERS,
   GeolocationDeniedError,
   type NearbyPlace,
@@ -23,6 +24,8 @@ import { CRUST_TYPES, INK_COLORS, type InkColor } from "@/lib/constants";
 import PlateRating from "@/components/PlateRating";
 import PolaroidCard from "@/components/PolaroidCard";
 import SauceSplatter from "@/components/SauceSplatter";
+import MomentComposer from "@/components/MomentComposer";
+import GoogleReviewPrompt from "@/components/GoogleReviewPrompt";
 
 type Step = "place" | "photos" | "details" | "review";
 const STEPS: Step[] = ["place", "photos", "details", "review"];
@@ -70,7 +73,12 @@ function CheckInFlow() {
 
   const [isFirstCheckIn, setIsFirstCheckIn] = useState(false);
   const [savedEntryId, setSavedEntryId] = useState<string | null>(null);
-  const [showCelebration, setShowCelebration] = useState(false);
+  // Screens shown after a successful save, in order: the first-ever-stamp
+  // celebration (only for a visitor's first check-in), then an optional
+  // Moment (photo/note) capture, then an optional Google review nudge —
+  // each stage is skippable and falls through to the next.
+  const [postSaveStage, setPostSaveStage] = useState<"celebration" | "moment" | "review" | null>(null);
+  const [momentNote, setMomentNote] = useState("");
 
   const stepIndex = STEPS.indexOf(step);
   const autoLocateRan = useRef(false);
@@ -244,6 +252,12 @@ function CheckInFlow() {
       // device's own position for manually-typed entries.
       const entryCoords = selectedPlace ? { lat: selectedPlace.lat, lng: selectedPlace.lng } : coords;
 
+      // Every check-in gets a place_id now — either the matched OpenStreetMap
+      // venue, or a synthesized one for manual entries — so it always groups
+      // under a public.pizzerias row (see schema_moments.sql) instead of only
+      // ever living on this one user's passport.
+      const placeId = selectedPlace?.id ?? synthesizePlaceId(restaurantName, coords);
+
       const { error: insertError } = await supabase.from("entries").insert({
         id: entryId,
         user_id: userId,
@@ -256,16 +270,13 @@ function CheckInFlow() {
         selfie_photo_url: selfieUrl,
         stamp_image_url: stampUrl,
         ink_color: inkColor,
-        place_id: selectedPlace?.id ?? null,
+        place_id: placeId,
+        claim_method: selectedPlace ? "geo" : "manual",
       });
       if (insertError) throw insertError;
 
       setSavedEntryId(entryId);
-      if (isFirstCheckIn) {
-        setShowCelebration(true);
-      } else {
-        router.push(`/story/${entryId}`);
-      }
+      setPostSaveStage(isFirstCheckIn ? "celebration" : "moment");
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : "Something went wrong saving your check-in.");
     } finally {
@@ -273,19 +284,79 @@ function CheckInFlow() {
     }
   }
 
+  async function handleSaveMoment({ photo, note }: { photo: File | null; note: string }) {
+    if (!savedEntryId || !userId || !coords) return;
+    const supabase = getBrowserSupabaseClient();
+    const placeId = selectedPlace?.id ?? synthesizePlaceId(restaurantName, coords);
+
+    let photoUrl: string | null = null;
+    if (photo) {
+      const path = `${savedEntryId}/moment.jpg`;
+      const { error: uploadError } = await supabase.storage
+        .from("pizza-photos")
+        .upload(path, photo, { upsert: true });
+      if (!uploadError) {
+        photoUrl = supabase.storage.from("pizza-photos").getPublicUrl(path).data.publicUrl;
+      }
+    }
+
+    await supabase.from("moments").insert({
+      entry_id: savedEntryId,
+      user_id: userId,
+      place_id: placeId,
+      photo_url: photoUrl,
+      note: note || null,
+    });
+
+    setMomentNote(note);
+    setPostSaveStage("review");
+  }
+
   if (!isReady) {
     return <p className="py-20 text-center text-mozzarella/50">Setting up your passport…</p>;
   }
 
-  if (showCelebration && savedEntryId) {
+  if (postSaveStage === "celebration" && savedEntryId) {
     return (
       <FirstStampCelebration
         stampPreview={stampPreview}
         restaurantName={restaurantName}
         username={username}
         onClaim={setUsername}
-        onContinue={() => router.push(`/story/${savedEntryId}`)}
+        onContinue={() => setPostSaveStage("moment")}
       />
+    );
+  }
+
+  if (postSaveStage === "moment" && savedEntryId) {
+    return (
+      <div className="relative mx-auto max-w-md overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] p-8">
+        <div aria-hidden="true" className="absolute inset-0 bg-cornmeal opacity-[0.14]" />
+        <div className="relative">
+          <MomentComposer
+            restaurantName={restaurantName}
+            onSave={handleSaveMoment}
+            onSkip={() => router.push(`/story/${savedEntryId}`)}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (postSaveStage === "review" && savedEntryId) {
+    return (
+      <div className="relative mx-auto max-w-md overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] p-8">
+        <div aria-hidden="true" className="absolute inset-0 bg-cornmeal opacity-[0.14]" />
+        <div className="relative">
+          <GoogleReviewPrompt
+            restaurantName={restaurantName}
+            rating={rating}
+            note={momentNote}
+            coords={coords}
+            onDismiss={() => router.push(`/story/${savedEntryId}`)}
+          />
+        </div>
+      </div>
     );
   }
 

@@ -29,6 +29,21 @@ export class GeolocationDeniedError extends Error {}
  * drift and imprecise OpenStreetMap coordinates. */
 export const MAX_CHECKIN_DISTANCE_METERS = 500;
 
+/**
+ * Deterministic place id for a manually-typed check-in with no matched
+ * OpenStreetMap venue, so it can still be grouped with future check-ins
+ * at the same spot under `public.pizzerias`. Coordinates are rounded to
+ * ~100m precision so repeat visits collapse into the same place instead
+ * of fragmenting on GPS noise.
+ */
+export function synthesizePlaceId(name: string, coords: Coordinates): string {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+  return `manual:${slug || "pizzeria"}:${coords.lat.toFixed(3)},${coords.lng.toFixed(3)}`;
+}
+
 /** Wraps the browser Geolocation API in a Promise with friendlier errors. */
 export function getCurrentPosition(options: PositionOptions = {}): Promise<Coordinates> {
   return new Promise((resolve, reject) => {

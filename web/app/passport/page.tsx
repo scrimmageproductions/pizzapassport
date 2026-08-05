@@ -307,6 +307,8 @@ function EntryModal({ entry, onClose }: { entry: Entry | null; onClose: () => vo
                 day: "numeric",
                 year: "numeric",
               })}
+              {" · "}
+              <span title="Display serial">No. {entry.serial_number}</span>
             </p>
           </div>
           <button onClick={onClose} className="text-mozzarella/50 hover:text-mozzarella">
@@ -325,9 +327,18 @@ function EntryModal({ entry, onClose }: { entry: Entry | null; onClose: () => vo
 
         <PlateRating value={entry.rating} readOnly />
 
+        {entry.place_id ? (
+          <Link
+            href={`/place/${encodeURIComponent(entry.place_id)}`}
+            className="mt-4 block text-center text-xs font-semibold text-crust hover:underline"
+          >
+            See all Moments at {entry.restaurant_name} →
+          </Link>
+        ) : null}
+
         <Link
           href={`/story/${entry.id}`}
-          className="mt-5 block rounded-full bg-tomato px-4 py-2.5 text-center text-sm font-bold text-mozzarella"
+          className="mt-3 block rounded-full bg-tomato px-4 py-2.5 text-center text-sm font-bold text-mozzarella"
         >
           Create Story
         </Link>
