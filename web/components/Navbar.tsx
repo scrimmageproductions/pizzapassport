@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Home, BookOpen, PlusCircle } from "lucide-react";
 import clsx from "clsx";
+import CheckeredBand from "./CheckeredBand";
 
 const LINKS = [
   { href: "/", label: "Home", icon: Home },
@@ -16,7 +17,7 @@ export default function Navbar() {
   const pathname = usePathname();
 
   return (
-    <header className="sticky top-0 z-20 border-b border-white/10 bg-charcoal/90 backdrop-blur">
+    <header className="sticky top-0 z-20 bg-charcoal/95 backdrop-blur">
       <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3 sm:px-6">
         <Link href="/" className="flex items-center gap-2">
           <span className="text-2xl">🍕</span>
@@ -46,6 +47,7 @@ export default function Navbar() {
           })}
         </nav>
       </div>
+      <CheckeredBand />
     </header>
   );
 }

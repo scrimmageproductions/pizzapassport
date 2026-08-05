@@ -10,6 +10,8 @@ import { useLocalProfile } from "@/lib/useLocalProfile";
 import { getBrowserSupabaseClient } from "@/lib/supabase/client";
 import type { Entry } from "@/lib/types";
 import PlateRating from "@/components/PlateRating";
+import CheckeredBand from "@/components/CheckeredBand";
+import SauceSplatter from "@/components/SauceSplatter";
 
 const STAMPS_PER_PAGE = 6;
 
@@ -79,12 +81,16 @@ export default function PassportPage() {
             /u/{username}
           </Link>
         </p>
+        <CheckeredBand className="mx-auto mt-4 max-w-[160px] rounded-full opacity-70" />
       </header>
 
-      <div className="grid grid-cols-3 gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-center">
-        <Stat label="Slices" value={String(stats.total)} />
-        <Stat label="Top Crust" value={stats.topCrust} />
-        <Stat label="Avg Plates" value={stats.avgRating.toFixed(1)} />
+      <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+        <div aria-hidden="true" className="absolute inset-0 bg-cornmeal opacity-[0.2]" />
+        <div className="relative grid grid-cols-3 gap-3 text-center">
+          <Stat label="Slices" value={String(stats.total)} />
+          <Stat label="Top Crust" value={stats.topCrust} />
+          <Stat label="Avg Plates" value={stats.avgRating.toFixed(1)} />
+        </div>
       </div>
 
       {entries.length === 0 ? (
@@ -98,13 +104,14 @@ export default function PassportPage() {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -24 }}
               transition={{ duration: 0.25 }}
-              className="rounded-3xl border border-white/10 bg-white/[0.03] p-6"
+              className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] p-6"
             >
-              <div className="mb-4 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-crust">
+              <div aria-hidden="true" className="absolute inset-0 bg-cornmeal opacity-[0.16]" />
+              <div className="relative mb-4 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-crust">
                 <span>Page {pageIndex + 1}</span>
                 <span>✈️</span>
               </div>
-              <div className="grid grid-cols-2 gap-6 sm:grid-cols-3">
+              <div className="relative grid grid-cols-2 gap-6 sm:grid-cols-3">
                 {pages[pageIndex].map((entry) => (
                   <button
                     key={entry.id}
@@ -223,13 +230,17 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 function EmptyState() {
   return (
-    <div className="flex flex-col items-center gap-4 rounded-3xl border border-white/10 bg-white/[0.03] p-12 text-center">
-      <span className="text-4xl">🍕</span>
-      <h2 className="font-serif text-xl font-bold text-mozzarella">Your passport is empty</h2>
-      <p className="text-sm text-mozzarella/60">Check in at your first pizzeria to earn a stamp.</p>
-      <Link href="/check-in" className="rounded-full bg-tomato px-6 py-2.5 text-sm font-bold text-mozzarella">
-        Check In
-      </Link>
+    <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] p-12 text-center">
+      <div aria-hidden="true" className="absolute inset-0 bg-cornmeal opacity-[0.18]" />
+      <SauceSplatter className="absolute -right-4 -top-4" size={90} opacity={0.3} />
+      <div className="relative flex flex-col items-center gap-4">
+        <span className="text-4xl">🍕</span>
+        <h2 className="font-serif text-xl font-bold text-mozzarella">Your passport is empty</h2>
+        <p className="text-sm text-mozzarella/60">Check in at your first pizzeria to earn a stamp.</p>
+        <Link href="/check-in" className="rounded-full bg-tomato px-6 py-2.5 text-sm font-bold text-mozzarella">
+          Check In
+        </Link>
+      </div>
     </div>
   );
 }

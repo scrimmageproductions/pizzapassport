@@ -44,7 +44,8 @@ export default function EntryCard({ entry }: { entry: Entry }) {
         </div>
       </div>
 
-      <div className="flex items-start gap-3 p-4">
+      <div className="relative flex items-start gap-3 overflow-hidden p-4">
+        <div aria-hidden="true" className="absolute inset-0 bg-cornmeal opacity-[0.1]" />
         {entry.stamp_image_url ? (
           <div
             className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border-2 border-dashed"

@@ -12,6 +12,7 @@ import { fetchLogoUrl } from "@/lib/logoFetcher";
 import { CRUST_TYPES, INK_COLORS, type InkColor } from "@/lib/constants";
 import PlateRating from "@/components/PlateRating";
 import PolaroidCard from "@/components/PolaroidCard";
+import SauceSplatter from "@/components/SauceSplatter";
 
 type Step = "place" | "photos" | "details" | "review";
 const STEPS: Step[] = ["place", "photos", "details", "review"];
@@ -176,7 +177,9 @@ export default function CheckInPage() {
   }
 
   return (
-    <div className="mx-auto max-w-xl space-y-6">
+    <div className="relative mx-auto max-w-xl space-y-6 overflow-hidden rounded-3xl border border-white/10 bg-white/[0.02] p-6">
+      <div aria-hidden="true" className="absolute inset-0 bg-cornmeal opacity-[0.14]" />
+      <div className="relative space-y-6">
       <ProgressBar stepIndex={stepIndex} total={STEPS.length} />
 
       {step === "place" && (
@@ -254,6 +257,7 @@ export default function CheckInPage() {
             {isGeneratingStamp ? "Stamping…" : "Next"}
           </button>
         )}
+      </div>
       </div>
     </div>
   );
@@ -442,17 +446,20 @@ function ReviewStep({
   onTogglePolaroid: () => void;
 }) {
   return (
-    <div className="flex flex-col items-center gap-4 text-center">
+    <div className="relative flex flex-col items-center gap-4 text-center">
       <SectionTitle>Your Stamp</SectionTitle>
-      <div className="flex h-40 w-40 items-center justify-center rounded-full border-2 border-dashed border-tomato/30 bg-white/5">
-        {isGenerating ? (
-          <Loader2 className="h-8 w-8 animate-spin text-mozzarella/50" />
-        ) : stampPreview ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={stampPreview} alt="Ink stamp" className="h-32 w-32 object-contain" />
-        ) : (
-          <span className="text-3xl">🍕</span>
-        )}
+      <div className="relative flex h-40 w-40 items-center justify-center">
+        <SauceSplatter className="absolute -bottom-3 -right-3" size={70} opacity={0.35} />
+        <div className="relative flex h-40 w-40 items-center justify-center rounded-full border-2 border-dashed border-tomato/30 bg-white/5">
+          {isGenerating ? (
+            <Loader2 className="h-8 w-8 animate-spin text-mozzarella/50" />
+          ) : stampPreview ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={stampPreview} alt="Ink stamp" className="h-32 w-32 object-contain" />
+          ) : (
+            <span className="text-3xl">🍕</span>
+          )}
+        </div>
       </div>
       <p className="font-serif text-lg font-bold text-mozzarella">{restaurantName}</p>
       <PlateRating value={rating} readOnly />
