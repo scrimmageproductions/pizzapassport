@@ -3,8 +3,8 @@ import UIKit
 
 /// The main digital passport: a paged grid of collected ink stamps, styled
 /// like flipping through a physical passport booklet. Tapping a stamp opens
-/// its entry detail, from which a Spotify-Wrapped-style story can be
-/// generated via `StoryExporterView`.
+/// its entry detail, from which a Visual Story Card can be generated via
+/// `StoryExporterView`.
 struct PassportView: View {
     @EnvironmentObject private var store: PassportStore
 

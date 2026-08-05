@@ -11,6 +11,12 @@ struct RootTabView: View {
             PassportView()
                 .tabItem { Label("Passport", systemImage: "book.closed.fill") }
 
+            LeaderboardView()
+                .tabItem { Label("Leaderboard", systemImage: "trophy.fill") }
+
+            GlobalMapView()
+                .tabItem { Label("Map", systemImage: "globe.americas.fill") }
+
             VIPFeedView(showingPaywall: $showingPaywall)
                 .tabItem { Label("Feed", systemImage: "globe") }
 

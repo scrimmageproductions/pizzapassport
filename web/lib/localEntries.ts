@@ -26,8 +26,11 @@ export interface LocalEntry {
   venue_photo_url: string;
   selfie_photo_url: string;
   stamp_image_url: string | null;
+  menu_photo_url: string | null;
+  points_earned: number;
   ink_color: string;
   place_id: string | null;
+  country: string | null;
   serial_number: number;
   claim_method: ClaimMethod;
   created_at: string;

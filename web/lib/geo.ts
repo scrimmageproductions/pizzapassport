@@ -1,3 +1,5 @@
+import { isChainPizzeria } from "./constants";
+
 export interface Coordinates {
   lat: number;
   lng: number;
@@ -18,6 +20,7 @@ export interface NearbyPlace {
 export interface ReverseGeocodeResult {
   label: string;
   city: string;
+  country: string;
 }
 
 /** Thrown specifically for a permission denial, so callers can show a
@@ -103,7 +106,7 @@ export async function reverseGeocode(coords: Coordinates): Promise<ReverseGeocod
     const city: string = address.city ?? address.town ?? address.village ?? address.county ?? "";
     const country: string = address.country ?? "";
     const label = [city, country].filter(Boolean).join(", ");
-    return label ? { label, city } : null;
+    return label ? { label, city, country } : null;
   } catch {
     // Network hiccup or the free API is temporarily unavailable — the
     // check-in flow treats this as "no city detected" and lets the user
@@ -124,6 +127,10 @@ interface OverpassElement {
  * API — no key required. Matches restaurants/fast-food/cafes tagged
  * `cuisine=pizza` plus anything with "pizza" in its name, within
  * `radiusMeters`, sorted nearest-first.
+ *
+ * Major national chains (see `CHAIN_BLACKLIST` in lib/constants.ts) are
+ * filtered out — Pizza Passport is about discovering local/independent
+ * pizzerias, not logging a Domino's run.
  */
 export async function searchNearbyPizzerias(
   coords: Coordinates,
@@ -146,7 +153,7 @@ export async function searchNearbyPizzerias(
     const places: NearbyPlace[] = [];
     for (const element of elements) {
       const name = element.tags?.name;
-      if (!name || seenNames.has(name.toLowerCase())) continue;
+      if (!name || seenNames.has(name.toLowerCase()) || isChainPizzeria(name)) continue;
       seenNames.add(name.toLowerCase());
 
       const placeCoords = { lat: element.lat, lng: element.lon };

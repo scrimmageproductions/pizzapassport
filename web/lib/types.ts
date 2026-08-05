@@ -8,7 +8,27 @@ export interface Profile {
   /** true until the anonymous session is upgraded to a real account. */
   is_guest: boolean;
   claimed_at: string | null;
+  /** Running total of this user's entries.points_earned — kept in sync by
+   * a Postgres trigger, see schema_gamification.sql. */
+  points: number;
   created_at: string;
+}
+
+/** One row of `public.leaderboard` — a public profile plus its aggregate
+ * stats, joined server-side so ranking never requires summing client-side. */
+export interface LeaderboardEntry {
+  id: string;
+  username: string;
+  avatar_url: string | null;
+  points: number;
+  total_checkins: number;
+}
+
+/** One row of `public.country_activity`, used by the world map. */
+export interface CountryActivity {
+  country: string;
+  total_checkins: number;
+  total_explorers: number;
 }
 
 export type ClaimMethod = "geo" | "manual" | "qr" | "link" | "secret_word";
@@ -24,10 +44,18 @@ export interface Entry {
   venue_photo_url: string;
   selfie_photo_url: string;
   stamp_image_url: string | null;
+  /** Optional third check-in photo of the pizzeria's menu — worth a
+   * points bonus, never required to complete a check-in. */
+  menu_photo_url: string | null;
+  /** +100 base, +100 more if menu_photo_url is set — see
+   * lib/constants.ts's POINTS_* constants. */
+  points_earned: number;
   ink_color: string;
   /** Geocoded venue id (see lib/geo.ts) — null only for entries saved
    * before the pizzerias migration; every new check-in always sets one. */
   place_id: string | null;
+  /** Reverse-geocoded at check-in time — powers the world map. */
+  country: string | null;
   /** Human-readable display serial ("Stamp No. 4821"), auto-assigned. */
   serial_number: number;
   claim_method: ClaimMethod;

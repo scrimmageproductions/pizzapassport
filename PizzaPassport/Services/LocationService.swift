@@ -2,6 +2,24 @@ import Foundation
 import CoreLocation
 import MapKit
 
+/// Major national fast-food pizza chains excluded from nearby-search
+/// results, so check-ins stay focused on local/independent pizzerias.
+/// Matched case-insensitively as a substring of the venue name — mirrors
+/// `CHAIN_BLACKLIST` in `web/lib/constants.ts`.
+enum PizzaChainFilter {
+    static let blacklist = [
+        "domino's", "dominos", "pizza hut", "papa john", "little caesars",
+        "marco's pizza", "marcos pizza", "chuck e. cheese", "chuck e cheese",
+        "cici's", "cicis", "hunt brothers", "sbarro",
+    ]
+
+    /// True if `name` matches a blacklisted national chain.
+    static func isChain(_ name: String) -> Bool {
+        let lower = name.lowercased()
+        return blacklist.contains { lower.contains($0) }
+    }
+}
+
 /// Thin wrapper around `CLLocationManager` used to seed place searches with
 /// the user's current position.
 @MainActor
@@ -79,6 +97,7 @@ final class PlaceSearchService: NSObject, ObservableObject {
             address: placemark.thoroughfare ?? completion.subtitle,
             city: placemark.locality ?? "",
             coordinate: Coordinate(placemark.coordinate),
+            country: placemark.country,
             logoURL: googlePlacesPhotoURL(for: item)
         )
     }
@@ -93,8 +112,11 @@ final class PlaceSearchService: NSObject, ObservableObject {
 }
 
 extension PlaceSearchService: MKLocalSearchCompleterDelegate {
+    /// Filters out major national chains (see `PizzaChainFilter`) so
+    /// results stay focused on local/independent pizzerias — this app is
+    /// about discovering those, not logging a Domino's run.
     nonisolated func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
-        let items = completer.results
+        let items = completer.results.filter { !PizzaChainFilter.isChain($0.title) }
         Task { @MainActor in
             results = items
         }

@@ -19,8 +19,10 @@ struct CheckInView: View {
 
     @State private var atmosphereItem: PhotosPickerItem?
     @State private var actionItem: PhotosPickerItem?
+    @State private var menuItem: PhotosPickerItem?
     @State private var atmosphereData: Data?
     @State private var actionData: Data?
+    @State private var menuData: Data?
 
     @State private var rating: Double = 4.0
     @State private var crust: CrustType = .nyStyle
@@ -75,6 +77,9 @@ struct CheckInView: View {
         .task(id: actionItem) {
             actionData = await loadImageData(actionItem)
         }
+        .task(id: menuItem) {
+            menuData = await loadImageData(menuItem)
+        }
     }
 
     private func loadImageData(_ item: PhotosPickerItem?) async -> Data? {
@@ -106,6 +111,16 @@ struct CheckInView: View {
                 .onChange(of: searchText) { _, newValue in
                     placeSearch.updateQuery(newValue)
                 }
+
+            if !placeSearch.results.isEmpty {
+                Text("🍕 Local & Artisanal Pizzerias Only")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(PizzaTheme.basilGreen)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(PizzaTheme.basilGreen.opacity(0.15))
+                    .clipShape(Capsule())
+            }
 
             ForEach(placeSearch.results, id: \.self) { completion in
                 Button {
@@ -144,14 +159,37 @@ struct CheckInView: View {
             stepTitle("Capture the moment")
             photoSlot(title: "Venue / Atmosphere", data: atmosphereData, item: $atmosphereItem)
             photoSlot(title: "You + the Slice", data: actionData, item: $actionItem)
+            photoSlot(title: "Pizzeria Menu Photo", data: menuData, item: $menuItem, optional: true, badge: "+100 Bonus Points")
         }
     }
 
-    private func photoSlot(title: String, data: Data?, item: Binding<PhotosPickerItem?>) -> some View {
+    private func photoSlot(
+        title: String,
+        data: Data?,
+        item: Binding<PhotosPickerItem?>,
+        optional: Bool = false,
+        badge: String? = nil
+    ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title.uppercased())
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(PizzaTheme.mozzarellaCream.opacity(0.7))
+            HStack(spacing: 6) {
+                Text(title.uppercased())
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(PizzaTheme.mozzarellaCream.opacity(0.7))
+                if optional {
+                    Text("(optional)")
+                        .font(.caption2)
+                        .foregroundStyle(PizzaTheme.mozzarellaCream.opacity(0.4))
+                }
+                if let badge {
+                    Text(badge)
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(PizzaTheme.crustGold)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(PizzaTheme.crustGold.opacity(0.15))
+                        .clipShape(Capsule())
+                }
+            }
 
             PhotosPicker(selection: item, matching: .images) {
                 ZStack {
@@ -260,6 +298,8 @@ struct CheckInView: View {
             }
             PlateRatingBadge(rating: rating)
 
+            pointsBadge
+
             polaroidPreviewToggle
 
             if usePolaroidPreview, let atmosphereData, let selectedRestaurant {
@@ -275,6 +315,27 @@ struct CheckInView: View {
                 .padding(.top, 4)
             }
         }
+    }
+
+    private var pointsEarned: Int {
+        PizzaEntry.baseCheckInPoints + (menuData != nil ? PizzaEntry.menuPhotoBonusPoints : 0)
+    }
+
+    private var pointsBadge: some View {
+        HStack(spacing: 6) {
+            Text("🏆 +\(pointsEarned) Points")
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(PizzaTheme.crustGold)
+            if menuData != nil {
+                Text("(incl. +100 menu bonus)")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(PizzaTheme.crustGold.opacity(0.7))
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .background(PizzaTheme.crustGold.opacity(0.15))
+        .clipShape(Capsule())
     }
 
     private var polaroidPreviewToggle: some View {
@@ -360,6 +421,7 @@ struct CheckInView: View {
             inkColor: inkColor,
             atmospherePhotoData: atmosphereData,
             actionPhotoData: actionData,
+            menuPhotoData: menuData,
             stampImageData: stampData
         )
         store.addEntry(entry)

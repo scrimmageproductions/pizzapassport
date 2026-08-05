@@ -81,17 +81,25 @@ actor SupabaseService {
 
     /// Uploads both required check-in photos plus the generated ink stamp,
     /// namespaced under the entry's own identifier so re-syncing an edited
-    /// entry overwrites the same objects.
+    /// entry overwrites the same objects. The menu photo is optional — its
+    /// URL comes back `nil` when the check-in doesn't include one.
     private func uploadCheckInPhotos(
         entryID: UUID,
         atmosphere: Data,
         selfie: Data,
+        menu: Data?,
         stamp: Data
-    ) async throws -> (venueURL: String, selfieURL: String, stampURL: String) {
+    ) async throws -> (venueURL: String, selfieURL: String, menuURL: String?, stampURL: String) {
         async let venue = uploadPhoto(atmosphere, path: "\(entryID)/venue.jpg")
         async let action = uploadPhoto(selfie, path: "\(entryID)/selfie.jpg")
         async let stampUpload = uploadPhoto(stamp, path: "\(entryID)/stamp.png")
-        return try await (venue, action, stampUpload)
+
+        var menuURL: String?
+        if let menu {
+            menuURL = try await uploadPhoto(menu, path: "\(entryID)/menu.jpg")
+        }
+
+        return try await (venue, action, menuURL, stampUpload)
     }
 
     // MARK: - Database
@@ -154,6 +162,7 @@ actor SupabaseService {
             entryID: entry.id,
             atmosphere: entry.atmospherePhotoData,
             selfie: entry.actionPhotoData,
+            menu: entry.menuPhotoData,
             stamp: entry.stampImageData
         )
 
@@ -167,8 +176,11 @@ actor SupabaseService {
             crustType: entry.crust.rawValue,
             venuePhotoURL: uploads.venueURL,
             selfiePhotoURL: uploads.selfieURL,
+            menuPhotoURL: uploads.menuURL,
+            pointsEarned: entry.pointsEarned,
             stampImageURL: uploads.stampURL,
             inkColor: entry.inkColor.rawValue,
+            country: entry.restaurant.country,
             createdAt: entry.date
         )
 
@@ -187,6 +199,30 @@ actor SupabaseService {
             .update(["is_vip": isVIP])
             .eq("id", value: userID)
             .execute()
+    }
+
+    // MARK: - Leaderboard & Global Map
+
+    /// Reads `public.leaderboard` (see `Resources/schema_gamification.sql`)
+    /// — one row per public profile with its total points and check-in
+    /// count, already joined server-side so no client-side aggregation
+    /// is needed.
+    func fetchLeaderboard() async throws -> [LeaderboardRow] {
+        try await client
+            .from("leaderboard")
+            .select()
+            .execute()
+            .value
+    }
+
+    /// Reads `public.country_activity` — one row per country with a
+    /// check-in, powering `GlobalMapView`.
+    func fetchCountryActivity() async throws -> [CountryActivityRow] {
+        try await client
+            .from("country_activity")
+            .select()
+            .execute()
+            .value
     }
 }
 
@@ -222,8 +258,14 @@ struct RemoteEntry: Codable, Sendable, Identifiable {
     var crustType: String
     var venuePhotoURL: String
     var selfiePhotoURL: String
+    /// Optional third check-in photo of the pizzeria's menu.
+    var menuPhotoURL: String?
+    /// +100 base, +100 more with a menu photo — see `PizzaEntry.pointsEarned`.
+    var pointsEarned: Int
     var stampImageURL: String
     var inkColor: String
+    /// Reverse-geocoded at check-in time — powers the world map.
+    var country: String?
     var createdAt: Date
 
     enum CodingKeys: String, CodingKey {
@@ -234,9 +276,43 @@ struct RemoteEntry: Codable, Sendable, Identifiable {
         case crustType = "crust_type"
         case venuePhotoURL = "venue_photo_url"
         case selfiePhotoURL = "selfie_photo_url"
+        case menuPhotoURL = "menu_photo_url"
+        case pointsEarned = "points_earned"
         case stampImageURL = "stamp_image_url"
         case inkColor = "ink_color"
+        case country
         case createdAt = "created_at"
+    }
+}
+
+/// One row of `public.leaderboard`: a public profile plus its aggregate
+/// stats, already joined server-side (see `schema_gamification.sql`).
+struct LeaderboardRow: Codable, Sendable, Identifiable {
+    var id: UUID
+    var username: String
+    var avatarURL: String?
+    var points: Int
+    var totalCheckins: Int
+
+    enum CodingKeys: String, CodingKey {
+        case id, username, points
+        case avatarURL = "avatar_url"
+        case totalCheckins = "total_checkins"
+    }
+}
+
+/// One row of `public.country_activity`, used by `GlobalMapView`.
+struct CountryActivityRow: Codable, Sendable, Identifiable {
+    var country: String
+    var totalCheckins: Int
+    var totalExplorers: Int
+
+    var id: String { country }
+
+    enum CodingKeys: String, CodingKey {
+        case country
+        case totalCheckins = "total_checkins"
+        case totalExplorers = "total_explorers"
     }
 }
 
@@ -260,11 +336,19 @@ extension RemoteEntry {
             return nil
         }
 
+        // The menu photo is optional — a missing or unreachable URL just
+        // means no bonus photo, never a reason to drop the whole entry.
+        var menuData: Data?
+        if let menuPhotoURL, let menuURL = URL(string: menuPhotoURL) {
+            menuData = try? await Self.downloadData(menuURL)
+        }
+
         let restaurant = Restaurant(
             name: restaurantName,
             address: "",
             city: "",
-            coordinate: Coordinate(latitude: latitude, longitude: longitude)
+            coordinate: Coordinate(latitude: latitude, longitude: longitude),
+            country: country
         )
 
         return PizzaEntry(
@@ -276,7 +360,9 @@ extension RemoteEntry {
             inkColor: ink,
             atmospherePhotoData: venueData,
             actionPhotoData: selfieData,
-            stampImageData: stampData
+            menuPhotoData: menuData,
+            stampImageData: stampData,
+            pointsEarned: pointsEarned
         )
     }
 

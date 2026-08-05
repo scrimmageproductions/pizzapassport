@@ -30,6 +30,9 @@ struct Restaurant: Identifiable, Codable, Hashable, Sendable {
     var address: String
     var city: String
     var coordinate: Coordinate
+    /// Resolved from `CLPlacemark.country` where available — powers the
+    /// world map and country-level leaderboards (see `entries.country`).
+    var country: String?
 
     /// Fully-formed remote artwork URL (e.g. a Google Places Photo
     /// reference URL) used as the source image for the ink stamp
@@ -42,6 +45,7 @@ struct Restaurant: Identifiable, Codable, Hashable, Sendable {
         address: String,
         city: String,
         coordinate: Coordinate,
+        country: String? = nil,
         logoURL: URL? = nil
     ) {
         self.id = id
@@ -49,6 +53,7 @@ struct Restaurant: Identifiable, Codable, Hashable, Sendable {
         self.address = address
         self.city = city
         self.coordinate = coordinate
+        self.country = country
         self.logoURL = logoURL
     }
 }

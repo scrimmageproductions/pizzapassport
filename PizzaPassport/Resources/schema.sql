@@ -20,6 +20,11 @@ create table if not exists public.profiles (
   username    text not null unique,
   avatar_url  text,
   is_vip      boolean not null default false,
+  -- Running total of entries.points_earned across this user's check-ins,
+  -- kept in sync by the trigger in schema_gamification.sql. Denormalized
+  -- here (rather than always summing entries) so the leaderboard is a
+  -- cheap indexed sort instead of an aggregate over every check-in.
+  points      int not null default 0,
   created_at  timestamptz not null default now()
 );
 
@@ -58,7 +63,19 @@ create table if not exists public.entries (
   -- stamps rather than just restaurant cards — nullable so it can be
   -- dropped safely if unused.
   stamp_image_url   text,
+  -- Optional third photo of the pizzeria's menu — never required to
+  -- complete a check-in, but worth a points bonus (see points_earned).
+  menu_photo_url    text,
+  -- +100 for the base check-in, +100 more if menu_photo_url is set. Stored
+  -- per-entry (rather than only summed into profiles.points) so a user's
+  -- points history/breakdown stays reconstructable after the fact.
+  points_earned     int not null default 100,
   ink_color         text not null,
+  -- Reverse-geocoded at check-in time (see lib/geo.ts / LocationService.swift)
+  -- so the world map and country leaderboards can aggregate without an
+  -- expensive per-row geocode lookup. Nullable — older rows and offline
+  -- check-ins may not have it.
+  country           text,
   created_at        timestamptz not null default now()
 );
 

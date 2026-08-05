@@ -4,7 +4,7 @@ A fully interactive, standalone web version of Pizza Passport, built with
 Next.js 14 (App Router) + Tailwind CSS + Supabase. It's not just a public
 viewer: visitors can create a passport, check in to a pizzeria, generate a
 distressed ink stamp entirely in-browser via Canvas, and export a
-Spotify-Wrapped-style story — no iOS app or account required.
+Shareable Story Card — no iOS app or account required.
 
 It reads and writes directly against the same Supabase project as the iOS
 app — no separate API layer — via anonymous auth and the Row Level Security

@@ -20,7 +20,7 @@ import {
   type NearbyPlace,
   type Coordinates,
 } from "@/lib/geo";
-import { CRUST_TYPES, INK_COLORS, type InkColor } from "@/lib/constants";
+import { CRUST_TYPES, INK_COLORS, POINTS_BASE_CHECKIN, POINTS_MENU_PHOTO_BONUS, type InkColor } from "@/lib/constants";
 import { loadLocalEntries, saveLocalEntry, saveLocalMoment, compressImageToDataUrl } from "@/lib/localEntries";
 import PlateRating from "@/components/PlateRating";
 import PolaroidCard from "@/components/PolaroidCard";
@@ -50,6 +50,7 @@ function CheckInFlow() {
   const [restaurantName, setRestaurantName] = useState("");
   const [city, setCity] = useState("");
   const [coords, setCoords] = useState<Coordinates | null>(null);
+  const [country, setCountry] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
 
@@ -59,8 +60,10 @@ function CheckInFlow() {
 
   const [venueFile, setVenueFile] = useState<File | null>(null);
   const [selfieFile, setSelfieFile] = useState<File | null>(null);
+  const [menuFile, setMenuFile] = useState<File | null>(null);
   const [venuePreview, setVenuePreview] = useState<string | null>(null);
   const [selfiePreview, setSelfiePreview] = useState<string | null>(null);
+  const [menuPreview, setMenuPreview] = useState<string | null>(null);
 
   const [rating, setRating] = useState(4);
   const [crust, setCrust] = useState<string>(CRUST_TYPES[1]);
@@ -134,6 +137,7 @@ function CheckInFlow() {
     try {
       const [geocode, places] = await Promise.all([reverseGeocode(position), searchNearbyPizzerias(position)]);
       setCity((current) => current || geocode?.city || current);
+      if (geocode?.country) setCountry(geocode.country);
       setNearbyPlaces(places);
     } finally {
       setIsSearchingNearby(false);
@@ -173,15 +177,18 @@ function CheckInFlow() {
 
   const isTooFar = distanceToSelectedPlace !== null && distanceToSelectedPlace > MAX_CHECKIN_DISTANCE_METERS;
 
-  function handleFile(kind: "venue" | "selfie", file: File | null) {
+  function handleFile(kind: "venue" | "selfie" | "menu", file: File | null) {
     if (!file) return;
     const url = URL.createObjectURL(file);
     if (kind === "venue") {
       setVenueFile(file);
       setVenuePreview(url);
-    } else {
+    } else if (kind === "selfie") {
       setSelfieFile(file);
       setSelfiePreview(url);
+    } else {
+      setMenuFile(file);
+      setMenuPreview(url);
     }
   }
 
@@ -246,13 +253,15 @@ function CheckInFlow() {
       // living on this one user's passport.
       const placeId = selectedPlace?.id ?? synthesizePlaceId(restaurantName, coords);
       const claimMethod = selectedPlace ? "geo" : "manual";
+      const pointsEarned = POINTS_BASE_CHECKIN + (menuFile ? POINTS_MENU_PHOTO_BONUS : 0);
 
       if (isOfflineMode) {
         // No Supabase reachable — compress photos to small data URLs and
         // keep the whole check-in on-device instead of failing the save.
-        const [venueDataUrl, selfieDataUrl] = await Promise.all([
+        const [venueDataUrl, selfieDataUrl, menuDataUrl] = await Promise.all([
           compressImageToDataUrl(venueFile),
           compressImageToDataUrl(selfieFile),
+          menuFile ? compressImageToDataUrl(menuFile) : Promise.resolve(null),
         ]);
         saveLocalEntry({
           id: entryId,
@@ -264,9 +273,12 @@ function CheckInFlow() {
           crust_type: crust,
           venue_photo_url: venueDataUrl,
           selfie_photo_url: selfieDataUrl,
+          menu_photo_url: menuDataUrl,
+          points_earned: pointsEarned,
           stamp_image_url: stampPreview,
           ink_color: inkColor,
           place_id: placeId,
+          country,
           serial_number: loadLocalEntries().length + 1,
           claim_method: claimMethod,
           created_at: new Date().toISOString(),
@@ -284,6 +296,15 @@ function CheckInFlow() {
       ]);
       if (venueUpload.error) throw venueUpload.error;
       if (selfieUpload.error) throw selfieUpload.error;
+
+      let menuUrl: string | null = null;
+      if (menuFile) {
+        const menuUpload = await supabase.storage
+          .from("pizza-photos")
+          .upload(`${entryId}/menu.jpg`, menuFile, { upsert: true });
+        if (menuUpload.error) throw menuUpload.error;
+        menuUrl = supabase.storage.from("pizza-photos").getPublicUrl(`${entryId}/menu.jpg`).data.publicUrl;
+      }
 
       const stampBlob = dataUrlToBlob(stampPreview);
       const stampUpload = await supabase.storage
@@ -305,9 +326,12 @@ function CheckInFlow() {
         crust_type: crust,
         venue_photo_url: venueUrl,
         selfie_photo_url: selfieUrl,
+        menu_photo_url: menuUrl,
+        points_earned: pointsEarned,
         stamp_image_url: stampUrl,
         ink_color: inkColor,
         place_id: placeId,
+        country,
         claim_method: claimMethod,
       });
       if (insertError) throw insertError;
@@ -445,8 +469,10 @@ function CheckInFlow() {
           <PhotosStep
             venuePreview={venuePreview}
             selfiePreview={selfiePreview}
+            menuPreview={menuPreview}
             onVenueChange={(f) => handleFile("venue", f)}
             onSelfieChange={(f) => handleFile("selfie", f)}
+            onMenuChange={(f) => handleFile("menu", f)}
           />
         )}
         {step === "details" && (
@@ -469,6 +495,8 @@ function CheckInFlow() {
             venuePreview={venuePreview}
             usePolaroidPreview={usePolaroidPreview}
             onTogglePolaroid={() => setUsePolaroidPreview((v) => !v)}
+            pointsEarned={POINTS_BASE_CHECKIN + (menuFile ? POINTS_MENU_PHOTO_BONUS : 0)}
+            hasMenuPhoto={menuFile !== null}
           />
         )}
 
@@ -566,7 +594,12 @@ function PlaceStep(props: {
         </p>
       ) : props.nearbyPlaces.length > 0 ? (
         <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-mozzarella/50">Nearby Pizzerias</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-mozzarella/50">Nearby Pizzerias</p>
+            <span className="rounded-full bg-basil/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-basil">
+              🍕 Local &amp; Artisanal Pizzerias Only
+            </span>
+          </div>
           <div className="max-h-56 space-y-1.5 overflow-y-auto pr-1">
             {props.nearbyPlaces.map((place) => {
               const active = props.selectedPlace?.id === place.id;
@@ -647,14 +680,23 @@ function PlaceStep(props: {
 function PhotosStep(props: {
   venuePreview: string | null;
   selfiePreview: string | null;
+  menuPreview: string | null;
   onVenueChange: (file: File | null) => void;
   onSelfieChange: (file: File | null) => void;
+  onMenuChange: (file: File | null) => void;
 }) {
   return (
     <div className="space-y-4">
       <SectionTitle>Capture the moment</SectionTitle>
       <PhotoSlot label="Venue / Atmosphere" preview={props.venuePreview} onChange={props.onVenueChange} />
       <PhotoSlot label="You + the Slice" preview={props.selfiePreview} onChange={props.onSelfieChange} />
+      <PhotoSlot
+        label="Pizzeria Menu Photo"
+        badge="+100 Bonus Points"
+        optional
+        preview={props.menuPreview}
+        onChange={props.onMenuChange}
+      />
     </div>
   );
 }
@@ -663,14 +705,26 @@ function PhotoSlot({
   label,
   preview,
   onChange,
+  optional = false,
+  badge,
 }: {
   label: string;
   preview: string | null;
   onChange: (file: File | null) => void;
+  optional?: boolean;
+  badge?: string;
 }) {
   return (
     <label className="block cursor-pointer">
-      <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-mozzarella/50">{label}</span>
+      <span className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-mozzarella/50">
+        {label}
+        {optional ? <span className="normal-case text-mozzarella/30">(optional)</span> : null}
+        {badge ? (
+          <span className="rounded-full bg-crust/20 px-2 py-0.5 text-[10px] font-bold normal-case tracking-normal text-crust">
+            {badge}
+          </span>
+        ) : null}
+      </span>
       <div className="relative flex h-44 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-white/5">
         {preview ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -756,6 +810,8 @@ function ReviewStep({
   venuePreview,
   usePolaroidPreview,
   onTogglePolaroid,
+  pointsEarned,
+  hasMenuPhoto,
 }: {
   isGenerating: boolean;
   stampPreview: string | null;
@@ -765,6 +821,8 @@ function ReviewStep({
   venuePreview: string | null;
   usePolaroidPreview: boolean;
   onTogglePolaroid: () => void;
+  pointsEarned: number;
+  hasMenuPhoto: boolean;
 }) {
   return (
     <div className="relative flex flex-col items-center gap-4 text-center">
@@ -784,6 +842,11 @@ function ReviewStep({
       </div>
       <p className="font-serif text-lg font-bold text-mozzarella">{restaurantName}</p>
       <PlateRating value={rating} readOnly />
+
+      <div className="flex items-center gap-2 rounded-full bg-crust/15 px-4 py-1.5 text-sm font-bold text-crust">
+        <span>🏆 +{pointsEarned} Points</span>
+        {hasMenuPhoto ? <span className="text-xs font-semibold text-crust/70">(incl. +100 menu bonus)</span> : null}
+      </div>
 
       <button
         type="button"

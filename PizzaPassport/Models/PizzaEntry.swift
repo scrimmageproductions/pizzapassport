@@ -15,8 +15,21 @@ struct PizzaEntry: Identifiable, Codable, Hashable, Sendable {
     var inkColor: StampInkColor
     var atmospherePhotoData: Data
     var actionPhotoData: Data
+    /// Optional third check-in photo of the pizzeria's menu — never
+    /// required, but worth a points bonus (see `Self.menuPhotoBonusPoints`).
+    var menuPhotoData: Data?
     /// PNG data of the stamp produced by `StampInkFilter`.
     var stampImageData: Data
+    /// +100 base, +100 more if `menuPhotoData` is set — computed
+    /// automatically at init unless a remote value is passed in explicitly
+    /// (e.g. when hydrating a `RemoteEntry` that already has one).
+    var pointsEarned: Int
+
+    /// Points awarded for a base check-in (venue + selfie photo) — mirrors
+    /// the `entries.points_earned` default in schema.sql.
+    static let baseCheckInPoints = 100
+    /// Extra points for the optional menu photo.
+    static let menuPhotoBonusPoints = 100
 
     init(
         id: UUID = UUID(),
@@ -28,7 +41,9 @@ struct PizzaEntry: Identifiable, Codable, Hashable, Sendable {
         inkColor: StampInkColor,
         atmospherePhotoData: Data,
         actionPhotoData: Data,
-        stampImageData: Data
+        menuPhotoData: Data? = nil,
+        stampImageData: Data,
+        pointsEarned: Int? = nil
     ) {
         self.id = id
         self.restaurant = restaurant
@@ -39,7 +54,9 @@ struct PizzaEntry: Identifiable, Codable, Hashable, Sendable {
         self.inkColor = inkColor
         self.atmospherePhotoData = atmospherePhotoData
         self.actionPhotoData = actionPhotoData
+        self.menuPhotoData = menuPhotoData
         self.stampImageData = stampImageData
+        self.pointsEarned = pointsEarned ?? Self.baseCheckInPoints + (menuPhotoData != nil ? Self.menuPhotoBonusPoints : 0)
     }
 
     var plateRatingText: String { String(format: "%.1f", rating) }

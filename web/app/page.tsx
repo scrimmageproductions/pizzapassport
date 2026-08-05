@@ -55,7 +55,7 @@ export default function HomePage() {
           </h1>
           <p className="mx-auto max-w-md text-mozzarella/60">
             Check in at every pizzeria, collect distressed ink stamps, and
-            export Spotify-Wrapped-style stories — right from your browser.
+            export Shareable Story Cards — right from your browser.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3">
             <Link
@@ -146,7 +146,7 @@ export default function HomePage() {
         <FeatureCard
           icon="📸"
           title="Share Your Story"
-          desc="Export a 9:16 Spotify-Wrapped-style card with one tap."
+          desc="Export a 9:16 Visual Story Card with one tap."
         />
       </section>
 

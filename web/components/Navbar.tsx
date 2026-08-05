@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, BookOpen, PlusCircle } from "lucide-react";
+import { Home, BookOpen, PlusCircle, Trophy, MapPinned } from "lucide-react";
 import clsx from "clsx";
 import CheckeredBand from "./CheckeredBand";
 
@@ -10,6 +10,8 @@ const LINKS = [
   { href: "/", label: "Home", icon: Home },
   { href: "/passport", label: "Passport", icon: BookOpen },
   { href: "/check-in", label: "Check In", icon: PlusCircle },
+  { href: "/leaderboard", label: "Leaderboard", icon: Trophy },
+  { href: "/map", label: "Map", icon: MapPinned },
 ];
 
 /** Sticky top nav shared across every route, with active-link highlighting. */

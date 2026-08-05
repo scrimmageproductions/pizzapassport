@@ -1,10 +1,10 @@
 import SwiftUI
 import UIKit
 
-/// "Spotify Wrapped"-style shareable story card: a 9:16 canvas with the two
-/// check-in photos, the generated ink stamp, restaurant details, and a
-/// scannable QR code back to the user's public profile. Rendered to a PNG
-/// via `ImageRenderer` for a pixel-perfect, native export.
+/// A Shareable Story Card: a 9:16 canvas with the two check-in photos, the
+/// generated ink stamp, restaurant details, and a scannable QR code back to
+/// the user's public profile. Rendered to a PNG via `ImageRenderer` for a
+/// pixel-perfect, native export.
 struct StoryExporterView: View {
     let entry: PizzaEntry
 
