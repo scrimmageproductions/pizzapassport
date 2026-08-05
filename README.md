@@ -116,12 +116,17 @@ or inject them at build time in CI.
    `SupabaseService` also exposes email/password and Sign in with Apple for
    upgrading that session to a permanent account.
 
-## Web viewer (`/web`)
+## Web app (`/web`)
 
-A public, read-only Next.js passport viewer lives in `/web` — see
-`web/README.md` for local dev and Vercel deployment steps. It reads
-directly from the same Supabase tables via the public-read RLS policies,
-so no separate API layer is needed.
+A full, standalone Next.js version of Pizza Passport lives in `/web` —
+not just a public viewer. Visitors get anonymous auth, a `/check-in` flow
+that uploads photos straight to Supabase Storage, an in-browser Canvas
+reimplementation of the ink stamp filter (`lib/stampFilter.ts`), an
+interactive `/passport` stamp book, and a `/story/[id]` exporter with PNG
+download and native share. See `web/README.md` for routes, local dev, and
+Vercel deployment steps. It reads/writes directly against the same
+Supabase tables via the RLS policies in `Resources/schema.sql`, so no
+separate API layer is needed.
 
 ## Notes on the ink stamp generator
 

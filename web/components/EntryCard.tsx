@@ -1,11 +1,6 @@
 import Image from "next/image";
 import type { Entry } from "@/lib/types";
-
-const INK_COLORS: Record<string, string> = {
-  red: "#C8102E",
-  blue: "#1C3D85",
-  charcoal: "#1C1C1E",
-};
+import { INK_COLORS, type InkColor } from "@/lib/constants";
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", {
@@ -15,12 +10,16 @@ function formatDate(iso: string) {
   });
 }
 
+function isInkColor(value: string): value is InkColor {
+  return value in INK_COLORS;
+}
+
 /**
  * A single check-in: dual photos (venue + selfie), the generated ink
  * stamp, restaurant name, crust style, date, and Plate rating.
  */
 export default function EntryCard({ entry }: { entry: Entry }) {
-  const inkHex = INK_COLORS[entry.ink_color] ?? "#C8102E";
+  const inkHex = isInkColor(entry.ink_color) ? INK_COLORS[entry.ink_color] : INK_COLORS.red;
 
   return (
     <article className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] shadow-lg shadow-black/30 transition hover:border-white/20">
