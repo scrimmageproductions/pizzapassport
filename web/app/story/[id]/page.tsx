@@ -7,9 +7,12 @@ import QRCode from "qrcode";
 import { Download, Share2, Loader2 } from "lucide-react";
 import clsx from "clsx";
 import { getBrowserSupabaseClient } from "@/lib/supabase/client";
+import { seedFromString } from "@/lib/stampFilter";
 import type { Entry, Profile } from "@/lib/types";
+import PolaroidCard from "@/components/PolaroidCard";
 
 type Palette = "tomato" | "mozzarella" | "basil" | "charcoal";
+type Layout = "classic" | "polaroid";
 
 const PALETTES: Record<Palette, { bg: string; text: string; accent: string }> = {
   tomato: { bg: "linear-gradient(180deg, #C8102E 0%, #1C1C1E 100%)", text: "#FFFDD0", accent: "#D1A34F" },
@@ -26,6 +29,7 @@ export default function StoryPage() {
   const [entry, setEntry] = useState<Entry | null>(null);
   const [username, setUsername] = useState<string>("pizzalover");
   const [palette, setPalette] = useState<Palette>("tomato");
+  const [layout, setLayout] = useState<Layout>("classic");
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
@@ -106,30 +110,48 @@ export default function StoryPage() {
       >
         <p className="text-center text-xs font-black tracking-[0.3em]">PIZZA PASSPORT</p>
 
-        <div className="grid grid-cols-2 gap-2">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={entry.venue_photo_url} alt="Venue" className="aspect-square w-full rounded-2xl object-cover" />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={entry.selfie_photo_url} alt="Selfie" className="aspect-square w-full rounded-2xl object-cover" />
-        </div>
+        {layout === "classic" ? (
+          <>
+            <div className="grid grid-cols-2 gap-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={entry.venue_photo_url} alt="Venue" className="aspect-square w-full rounded-2xl object-cover" />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={entry.selfie_photo_url} alt="Selfie" className="aspect-square w-full rounded-2xl object-cover" />
+            </div>
 
-        <div className="flex flex-col items-center gap-1">
-          {entry.stamp_image_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={entry.stamp_image_url} alt="Ink stamp" className="h-20 w-20 object-contain" />
-          ) : null}
-          <p className="font-serif text-xl font-bold">{entry.restaurant_name}</p>
-          <p className="text-xs opacity-70">
-            {new Date(entry.created_at).toLocaleDateString("en-US", {
-              month: "short",
-              day: "numeric",
-              year: "numeric",
-            })}
-          </p>
-          <p className="text-sm font-bold" style={{ color: theme.accent }}>
-            🍽️ {entry.rating.toFixed(1)} Plates
-          </p>
-        </div>
+            <div className="flex flex-col items-center gap-1">
+              {entry.stamp_image_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={entry.stamp_image_url} alt="Ink stamp" className="h-20 w-20 object-contain" />
+              ) : null}
+              <p className="font-serif text-xl font-bold">{entry.restaurant_name}</p>
+              <p className="text-xs opacity-70">
+                {new Date(entry.created_at).toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })}
+              </p>
+              <p className="text-sm font-bold" style={{ color: theme.accent }}>
+                🍽️ {entry.rating.toFixed(1)} Plates
+              </p>
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-1 flex-col items-center justify-center gap-3">
+            <PolaroidCard
+              photoUrl={entry.venue_photo_url}
+              restaurantName={entry.restaurant_name}
+              location=""
+              date={entry.created_at}
+              stampUrl={entry.stamp_image_url}
+              seed={seedFromString(entry.id)}
+            />
+            <p className="text-sm font-bold" style={{ color: theme.accent }}>
+              🍽️ {entry.rating.toFixed(1)} Plates
+            </p>
+          </div>
+        )}
 
         <div className="flex items-center justify-between">
           <div>
@@ -141,6 +163,21 @@ export default function StoryPage() {
             <img src={qrCode} alt="QR code" className="h-14 w-14 rounded-md bg-white p-1" />
           ) : null}
         </div>
+      </div>
+
+      <div className="flex rounded-full border border-white/15 bg-white/5 p-1 text-xs font-semibold">
+        {(["classic", "polaroid"] as Layout[]).map((key) => (
+          <button
+            key={key}
+            onClick={() => setLayout(key)}
+            className={clsx(
+              "rounded-full px-4 py-1.5 capitalize transition",
+              layout === key ? "bg-tomato text-mozzarella" : "text-mozzarella/60"
+            )}
+          >
+            {key}
+          </button>
+        ))}
       </div>
 
       <div className="flex items-center gap-3">

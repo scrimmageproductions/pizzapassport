@@ -12,6 +12,7 @@ struct StoryExporterView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var palette: StoryPalette = .tomato
+    @State private var layout: StoryLayout = .classic
     @State private var renderedImage: UIImage?
     @State private var isExporting = false
 
@@ -26,6 +27,7 @@ struct StoryExporterView: View {
                         .padding(.top, 12)
                 }
 
+                layoutSwitcher
                 paletteSwitcher
 
                 HStack(spacing: 16) {
@@ -58,7 +60,7 @@ struct StoryExporterView: View {
                     Button("Close") { dismiss() }
                 }
             }
-            .task(id: palette) {
+            .task(id: "\(palette.rawValue)-\(layout.rawValue)") {
                 renderedImage = renderCanvas()
             }
         }
@@ -67,7 +69,15 @@ struct StoryExporterView: View {
 
     // MARK: - Canvas
 
+    @ViewBuilder
     private var storyCanvas: some View {
+        switch layout {
+        case .classic: classicCanvas
+        case .polaroid: polaroidCanvas
+        }
+    }
+
+    private var classicCanvas: some View {
         ZStack {
             palette.backgroundGradient
 
@@ -104,28 +114,75 @@ struct StoryExporterView: View {
 
                 Spacer(minLength: 0)
 
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("@\(store.profileHandle)")
-                            .font(.caption.weight(.bold))
-                        Text(store.publicProfileURL.host ?? APIConfig.vercelWebDomain)
-                            .font(.caption2)
-                            .opacity(0.6)
-                    }
-                    Spacer()
-                    Image(uiImage: QRCodeGenerator.profileCode(for: store.profileHandle))
-                        .interpolation(.none)
-                        .resizable()
-                        .frame(width: 54, height: 54)
-                        .padding(4)
-                        .background(Color.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                }
-                .foregroundStyle(palette.text)
-                .padding(.horizontal, 24)
-                .padding(.bottom, 24)
+                profileFooter
             }
         }
+    }
+
+    /// Frames the atmosphere photo as an instant-camera Polaroid — the
+    /// generated ink stamp rides along on its corner — instead of the
+    /// classic dual-photo grid.
+    private var polaroidCanvas: some View {
+        ZStack {
+            palette.backgroundGradient
+
+            VStack(spacing: 18) {
+                Text("PIZZA PASSPORT")
+                    .font(.caption.weight(.heavy))
+                    .tracking(3)
+                    .foregroundStyle(palette.accent)
+                    .padding(.top, 28)
+
+                PolaroidView(
+                    photoData: entry.atmospherePhotoData,
+                    restaurantName: entry.restaurant.name,
+                    location: entry.restaurant.city,
+                    date: entry.date,
+                    stampImageData: entry.stampImageData,
+                    seed: UInt64(bitPattern: Int64(entry.id.hashValue))
+                )
+                .frame(width: 220)
+
+                PlateRatingBadge(rating: entry.rating)
+
+                Spacer(minLength: 0)
+
+                profileFooter
+            }
+        }
+    }
+
+    private var profileFooter: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("@\(store.profileHandle)")
+                    .font(.caption.weight(.bold))
+                Text(store.publicProfileURL.host ?? APIConfig.vercelWebDomain)
+                    .font(.caption2)
+                    .opacity(0.6)
+            }
+            Spacer()
+            Image(uiImage: QRCodeGenerator.profileCode(for: store.profileHandle))
+                .interpolation(.none)
+                .resizable()
+                .frame(width: 54, height: 54)
+                .padding(4)
+                .background(Color.white)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .foregroundStyle(palette.text)
+        .padding(.horizontal, 24)
+        .padding(.bottom, 24)
+    }
+
+    private var layoutSwitcher: some View {
+        Picker("Layout", selection: $layout) {
+            ForEach(StoryLayout.allCases) { l in
+                Text(l.label).tag(l)
+            }
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal)
     }
 
     private var stampBadge: some View {
@@ -185,6 +242,21 @@ struct StoryExporterView: View {
             guard let image = renderCanvas() else { return }
             UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
             renderedImage = image
+        }
+    }
+}
+
+/// Photo treatment for the story canvas: the classic dual-photo grid, or an
+/// instant-camera Polaroid frame around the atmosphere photo.
+enum StoryLayout: String, CaseIterable, Identifiable {
+    case classic, polaroid
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .classic: "Classic"
+        case .polaroid: "Polaroid"
         }
     }
 }

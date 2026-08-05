@@ -7,9 +7,11 @@ import confetti from "canvas-confetti";
 import { MapPin, Camera, Loader2 } from "lucide-react";
 import { useLocalProfile } from "@/lib/useLocalProfile";
 import { getBrowserSupabaseClient } from "@/lib/supabase/client";
-import { generateInkStamp, dataUrlToBlob, seedFromString } from "@/lib/stampFilter";
+import { generateInkStamp, generateNameArchStamp, dataUrlToBlob, seedFromString } from "@/lib/stampFilter";
+import { fetchLogoUrl } from "@/lib/logoFetcher";
 import { CRUST_TYPES, INK_COLORS, type InkColor } from "@/lib/constants";
 import PlateRating from "@/components/PlateRating";
+import PolaroidCard from "@/components/PolaroidCard";
 
 type Step = "place" | "photos" | "details" | "review";
 const STEPS: Step[] = ["place", "photos", "details", "review"];
@@ -38,6 +40,7 @@ export default function CheckInPage() {
   const [isGeneratingStamp, setIsGeneratingStamp] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [usePolaroidPreview, setUsePolaroidPreview] = useState(false);
 
   const stepIndex = STEPS.indexOf(step);
 
@@ -88,14 +91,17 @@ export default function CheckInPage() {
   }, [step, restaurantName, coords, venueFile, selfieFile, stampPreview]);
 
   async function goNext() {
-    if (step === "details" && venuePreview && !stampPreview) {
+    if (step === "details" && !stampPreview) {
       setIsGeneratingStamp(true);
       try {
-        // Generated from the venue photo itself, which is guaranteed
-        // same-origin (a local blob: URL) and always available once photos
-        // are picked — no external logo lookup or CORS risk required.
         const seed = seedFromString(restaurantName + inkColor);
-        const dataUrl = await generateInkStamp(venuePreview, { inkColor, seed });
+        // 3-tier international logo fetch (Places photo -> Clearbit/
+        // Brandfetch -> favicon); if all three come up empty, fall back to
+        // the full-name arch stamp instead of ever truncating to a letter.
+        const logo = await fetchLogoUrl(restaurantName);
+        const dataUrl = logo
+          ? await generateInkStamp(logo.url, { inkColor, seed })
+          : await generateNameArchStamp(restaurantName, city, { inkColor, seed });
         setStampPreview(dataUrl);
         confetti({
           particleCount: 80,
@@ -208,7 +214,11 @@ export default function CheckInPage() {
           isGenerating={isGeneratingStamp}
           stampPreview={stampPreview}
           restaurantName={restaurantName}
+          city={city}
           rating={rating}
+          venuePreview={venuePreview}
+          usePolaroidPreview={usePolaroidPreview}
+          onTogglePolaroid={() => setUsePolaroidPreview((v) => !v)}
         />
       )}
 
@@ -416,12 +426,20 @@ function ReviewStep({
   isGenerating,
   stampPreview,
   restaurantName,
+  city,
   rating,
+  venuePreview,
+  usePolaroidPreview,
+  onTogglePolaroid,
 }: {
   isGenerating: boolean;
   stampPreview: string | null;
   restaurantName: string;
+  city: string;
   rating: number;
+  venuePreview: string | null;
+  usePolaroidPreview: boolean;
+  onTogglePolaroid: () => void;
 }) {
   return (
     <div className="flex flex-col items-center gap-4 text-center">
@@ -438,6 +456,30 @@ function ReviewStep({
       </div>
       <p className="font-serif text-lg font-bold text-mozzarella">{restaurantName}</p>
       <PlateRating value={rating} readOnly />
+
+      <button
+        type="button"
+        onClick={onTogglePolaroid}
+        className={clsx(
+          "rounded-full border px-4 py-2 text-xs font-semibold transition",
+          usePolaroidPreview
+            ? "border-crust bg-crust/10 text-crust"
+            : "border-white/15 text-mozzarella/60 hover:bg-white/5"
+        )}
+      >
+        {usePolaroidPreview ? "✓ Polaroid Preview On" : "Preview as Polaroid"}
+      </button>
+
+      {usePolaroidPreview && venuePreview ? (
+        <PolaroidCard
+          photoUrl={venuePreview}
+          restaurantName={restaurantName}
+          location={city}
+          date={new Date()}
+          stampUrl={stampPreview}
+          seed={seedFromString(restaurantName)}
+        />
+      ) : null}
     </div>
   );
 }

@@ -217,23 +217,145 @@ function createFallbackStamp(size: number, inkColor: InkColor, seed: number): st
   return canvas.toDataURL("image/png");
 }
 
+export interface ArchStampOptions {
+  size?: number;
+  inkColor?: InkColor;
+  seed?: number;
+}
+
 /**
- * Builds a same-origin `data:` URL of a bold letter glyph — a zero-network,
- * zero-CORS-risk stand-in "logo" for the landing page's live demo (and
- * anywhere a restaurant hasn't got an official logo on file yet).
+ * Generates a stamp when no venue logo could be resolved: the full
+ * restaurant name arced along the top inner border, its city/location
+ * arced along the bottom, and a pizza glyph centered — then run through
+ * the exact same distress/tint/bleed/rotation pipeline as a real logo (via
+ * `generateInkStamp`), so it reads identically on the page. Mirrors
+ * `StampInkFilter.makeNameArchStamp` on iOS. The full name is always shown
+ * — long names shrink to fit the arc instead of ever being truncated to a
+ * single initial.
  */
-export function createLetterLogoDataUrl(letter: string, size = 512): string {
+export async function generateNameArchStamp(
+  restaurantName: string,
+  location: string,
+  options: ArchStampOptions = {}
+): Promise<string> {
+  const size = options.size ?? 512;
+  const artwork = createArcTextArtwork(restaurantName, location, size);
+  return generateInkStamp(artwork, {
+    size,
+    inkColor: options.inkColor,
+    seed: options.seed ?? seedFromString(restaurantName + location),
+  });
+}
+
+/** Shrinks a font size until the string's total arc length fits within
+ * `maxArcLength`, so a long pizzeria name is always shown in full — just
+ * smaller — instead of ever being truncated to an initial. */
+function fittedFontSize(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  baseSize: number,
+  maxArcLength: number,
+  letterSpacingRatio: number,
+  fontWeight: string
+): number {
+  let fontSize = baseSize;
+  const arcLength = () => {
+    ctx.font = `${fontWeight} ${fontSize}px system-ui, sans-serif`;
+    const widths = Array.from(text).map((ch) => ctx.measureText(ch).width);
+    const spacing = fontSize * letterSpacingRatio;
+    return widths.reduce((a, b) => a + b, 0) + spacing * Math.max(text.length - 1, 0);
+  };
+  const minSize = baseSize * 0.4;
+  while (arcLength() > maxArcLength && fontSize > minSize) {
+    fontSize *= 0.92;
+  }
+  return fontSize;
+}
+
+/**
+ * Draws `text` along a circular arc centered on `(centerX, centerY)`, one
+ * glyph at a time, using the standard "rotate half a glyph's angle, draw,
+ * rotate the other half" technique so widths never drift out of alignment.
+ * `upsideDown` both reverses the walking direction and flips each glyph
+ * 180° — required for text arced along the *bottom* of a circle to read
+ * right-side up and left-to-right, since the tangent direction there is
+ * mirrored relative to the top.
+ */
+function drawTextOnArc(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  centerX: number,
+  centerY: number,
+  radius: number,
+  fontSize: number,
+  fontWeight: string,
+  letterSpacingRatio: number,
+  upsideDown: boolean
+) {
+  if (!text) return;
+  ctx.font = `${fontWeight} ${fontSize}px system-ui, sans-serif`;
+  ctx.fillStyle = "#111111";
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "center";
+
+  const letterSpacing = fontSize * letterSpacingRatio;
+  const chars = Array.from(text);
+  const widths = chars.map((ch) => ctx.measureText(ch).width);
+  const totalArcLength = widths.reduce((a, b) => a + b, 0) + letterSpacing * Math.max(chars.length - 1, 0);
+  const totalAngle = totalArcLength / radius;
+  const direction = upsideDown ? -1 : 1;
+
+  ctx.save();
+  ctx.translate(centerX, centerY);
+  ctx.rotate(-(totalAngle / 2) * direction);
+
+  chars.forEach((ch, index) => {
+    const charAngle = (widths[index] / radius) * direction;
+    ctx.rotate(charAngle / 2);
+
+    ctx.save();
+    ctx.translate(0, -radius);
+    if (upsideDown) ctx.rotate(Math.PI);
+    ctx.fillText(ch, 0, 0);
+    ctx.restore();
+
+    const spacingAngle = index < chars.length - 1 ? (letterSpacing / radius) * direction : 0;
+    ctx.rotate(charAngle / 2 + spacingAngle);
+  });
+
+  ctx.restore();
+}
+
+function createArcTextArtwork(restaurantName: string, location: string, size: number): string {
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext("2d")!;
+
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, size, size);
-  ctx.fillStyle = "#111111";
-  ctx.font = `bold ${size * 0.55}px Georgia, serif`;
+
+  const centerX = size / 2;
+  const centerY = size / 2;
+  const outerRadius = size * 0.46;
+  const textRadius = outerRadius * 0.82;
+  const maxArcLength = outerRadius * (Math.PI * 0.72);
+
+  const name = restaurantName.toUpperCase();
+  const nameFontSize = fittedFontSize(ctx, name, size * 0.075, maxArcLength, 0.12, "bold");
+  drawTextOnArc(ctx, name, centerX, centerY, textRadius, nameFontSize, "bold", 0.12, false);
+
+  const locationText = location.trim().toUpperCase();
+  if (locationText) {
+    const locationFontSize = fittedFontSize(ctx, locationText, size * 0.05, maxArcLength, 0.14, "600");
+    drawTextOnArc(ctx, locationText, centerX, centerY, textRadius, locationFontSize, "600", 0.14, true);
+  }
+
+  ctx.font = `${size * 0.22}px system-ui, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText((letter || "P").toUpperCase(), size / 2, size / 2 + size * 0.04);
+  ctx.fillText("🍕", centerX, centerY + size * 0.01);
+
   return canvas.toDataURL("image/png");
 }
 

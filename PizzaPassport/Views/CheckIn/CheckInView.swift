@@ -29,6 +29,7 @@ struct CheckInView: View {
 
     @State private var generatedStamp: UIImage?
     @State private var isGeneratingStamp = false
+    @State private var usePolaroidPreview = false
 
     private enum Step: Int, CaseIterable {
         case place, photos, details, review
@@ -258,7 +259,36 @@ struct CheckInView: View {
                     .foregroundStyle(PizzaTheme.mozzarellaCream)
             }
             PlateRatingBadge(rating: rating)
+
+            polaroidPreviewToggle
+
+            if usePolaroidPreview, let atmosphereData, let selectedRestaurant {
+                PolaroidView(
+                    photoData: atmosphereData,
+                    restaurantName: selectedRestaurant.name,
+                    location: selectedRestaurant.city,
+                    date: .now,
+                    stampImageData: generatedStamp?.pngData(),
+                    seed: UInt64(bitPattern: Int64(selectedRestaurant.id.hashValue))
+                )
+                .frame(width: 220)
+                .padding(.top, 4)
+            }
         }
+    }
+
+    private var polaroidPreviewToggle: some View {
+        Button {
+            usePolaroidPreview.toggle()
+        } label: {
+            Label(
+                usePolaroidPreview ? "Polaroid Preview On" : "Preview as Polaroid",
+                systemImage: usePolaroidPreview ? "checkmark.circle.fill" : "photo.on.rectangle.angled"
+            )
+            .font(.caption.weight(.semibold))
+        }
+        .buttonStyle(.bordered)
+        .tint(PizzaTheme.crustGold)
     }
 
     private func generateStampIfNeeded() async {
@@ -266,10 +296,20 @@ struct CheckInView: View {
         isGeneratingStamp = true
         defer { isGeneratingStamp = false }
 
-        let logo = (try? await LogoFetchService().fetchLogo(for: restaurant))
-            ?? UIImage(systemName: "fork.knife.circle.fill")!
         let seed = UInt64(bitPattern: Int64(restaurant.id.hashValue))
-        generatedStamp = StampInkFilter().makeStamp(from: logo, inkColor: inkColor, seed: seed)
+        if let logo = try? await LogoFetchService().fetchLogo(for: restaurant) {
+            generatedStamp = StampInkFilter().makeStamp(from: logo, inkColor: inkColor, seed: seed)
+        } else {
+            // All three real-artwork tiers (Places photo, Clearbit/Brandfetch,
+            // favicon) came up empty — stamp the full restaurant name instead
+            // of ever truncating to a single initial.
+            generatedStamp = StampInkFilter().makeNameArchStamp(
+                restaurantName: restaurant.name,
+                location: restaurant.city,
+                inkColor: inkColor,
+                seed: seed
+            )
+        }
     }
 
     // MARK: - Navigation

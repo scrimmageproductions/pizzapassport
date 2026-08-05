@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Sparkles, BookOpen, Smartphone, Loader2 } from "lucide-react";
-import { generateInkStamp, createLetterLogoDataUrl, seedFromString } from "@/lib/stampFilter";
+import { generateNameArchStamp } from "@/lib/stampFilter";
 import { INK_COLORS, type InkColor } from "@/lib/constants";
 
 export default function HomePage() {
@@ -16,11 +16,10 @@ export default function HomePage() {
     if (!name.trim()) return;
     setIsGenerating(true);
     try {
-      // The live demo has no restaurant logo to fetch, so it stamps a
-      // letter-glyph "logo" instead — this exercises the exact same Canvas
-      // pipeline used for real check-ins (see lib/stampFilter.ts).
-      const logo = createLetterLogoDataUrl(name.trim()[0] ?? "P");
-      const stampUrl = await generateInkStamp(logo, { inkColor, seed: seedFromString(name) });
+      // The live demo has no restaurant logo to fetch, so it exercises
+      // the same "no logo found" arch-text stamp real check-ins fall back
+      // to — the full name arced along the top, never just an initial.
+      const stampUrl = await generateNameArchStamp(name.trim(), "Demo City", { inkColor });
       setStamp(stampUrl);
     } finally {
       setIsGenerating(false);

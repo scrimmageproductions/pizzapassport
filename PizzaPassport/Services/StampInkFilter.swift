@@ -30,8 +30,50 @@ struct StampInkFilter {
     ) -> UIImage? {
         guard let sourceCG = image.cgImage else { return nil }
         let source = CIImage(cgImage: sourceCG)
-
         let normalized = fit(source, into: canvasSize)
+        return finish(normalized, inkColor: inkColor, canvasSize: canvasSize, seed: seed)
+    }
+
+    /// Generates a stamp when no venue logo could be resolved: the full
+    /// restaurant name arced along the top inner border, its city/country
+    /// arced along the bottom, and a pizza glyph centered — then run
+    /// through the exact same distress/tint/bleed/rotation finishing as a
+    /// real logo, so it reads identically on the passport page. This is
+    /// the tier-4 fallback `LogoFetchService` calls out to when it can't
+    /// find any real artwork.
+    /// - Parameters:
+    ///   - restaurantName: Always rendered in full — never truncated to a
+    ///     single initial. Long names shrink to fit the arc instead.
+    ///   - location: City/country line arced along the bottom; pass an
+    ///     empty string to omit it.
+    func makeNameArchStamp(
+        restaurantName: String,
+        location: String,
+        inkColor: StampInkColor,
+        canvasSize: CGFloat = 512,
+        seed: UInt64
+    ) -> UIImage? {
+        guard let artwork = ArcTextStampArtwork.render(
+            restaurantName: restaurantName,
+            location: location,
+            size: canvasSize
+        ), let artworkCG = artwork.cgImage else {
+            return nil
+        }
+        let source = CIImage(cgImage: artworkCG)
+        return finish(source, inkColor: inkColor, canvasSize: canvasSize, seed: seed)
+    }
+
+    /// Shared back half of the pipeline: monochrome -> contrast/posterize
+    /// -> grunge distress -> ink tint -> bleed -> rotation. Both a fetched
+    /// logo (already scaled into the canvas by `fit`) and generated arc-text
+    /// artwork (already rendered at full canvas size) funnel through here.
+    private func finish(
+        _ normalized: CIImage,
+        inkColor: StampInkColor,
+        canvasSize: CGFloat,
+        seed: UInt64
+    ) -> UIImage? {
         let mono = monochrome(normalized)
         let posterized = highContrast(mono)
         let distressed = distress(posterized, canvasSize: canvasSize)
@@ -171,5 +213,151 @@ struct SeededGenerator: RandomNumberGenerator {
         state ^= state >> 7
         state ^= state << 17
         return state
+    }
+}
+
+/// Renders the vector "no logo yet" stamp source: a full restaurant name
+/// arced along the top inner border, an optional location line arced along
+/// the bottom, and a centered icon — all drawn crisply with Core Graphics
+/// so it feeds cleanly into `StampInkFilter`'s monochrome/distress pipeline.
+enum ArcTextStampArtwork {
+    static func render(restaurantName: String, location: String, size: CGFloat) -> UIImage? {
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
+        return renderer.image { rendererContext in
+            let context = rendererContext.cgContext
+            UIColor.white.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: size, height: size))
+
+            let center = CGPoint(x: size / 2, y: size / 2)
+            let outerRadius = size * 0.46
+            let textRadius = outerRadius * 0.82
+            let maxArcLength = outerRadius * (.pi * 0.72)
+
+            let nameFont = fittedFont(
+                for: restaurantName,
+                baseFont: .systemFont(ofSize: size * 0.075, weight: .bold),
+                maxArcLength: maxArcLength,
+                letterSpacingRatio: 0.12
+            )
+            drawTextOnArc(
+                restaurantName.uppercased(),
+                context: context,
+                center: center,
+                radius: textRadius,
+                font: nameFont,
+                letterSpacingRatio: 0.12,
+                upsideDown: false
+            )
+
+            let trimmedLocation = location.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedLocation.isEmpty {
+                let locationFont = fittedFont(
+                    for: trimmedLocation,
+                    baseFont: .systemFont(ofSize: size * 0.05, weight: .semibold),
+                    maxArcLength: maxArcLength,
+                    letterSpacingRatio: 0.14
+                )
+                drawTextOnArc(
+                    trimmedLocation.uppercased(),
+                    context: context,
+                    center: center,
+                    radius: textRadius,
+                    font: locationFont,
+                    letterSpacingRatio: 0.14,
+                    upsideDown: true
+                )
+            }
+
+            if let icon = UIImage(systemName: "fork.knife.circle")?
+                .withTintColor(.black, renderingMode: .alwaysOriginal) {
+                let iconSize = size * 0.22
+                icon.draw(in: CGRect(
+                    x: center.x - iconSize / 2,
+                    y: center.y - iconSize / 2,
+                    width: iconSize,
+                    height: iconSize
+                ))
+            }
+        }
+    }
+
+    /// Shrinks a font until the string's total arc length fits within
+    /// `maxArcLength`, so a long pizzeria name is always shown in full —
+    /// just smaller — instead of ever being truncated to an initial.
+    private static func fittedFont(
+        for text: String,
+        baseFont: UIFont,
+        maxArcLength: CGFloat,
+        letterSpacingRatio: CGFloat
+    ) -> UIFont {
+        guard !text.isEmpty else { return baseFont }
+
+        func arcLength(of font: UIFont) -> CGFloat {
+            let attributes: [NSAttributedString.Key: Any] = [.font: font]
+            let widths = text.map { (String($0) as NSString).size(withAttributes: attributes).width }
+            let spacing = font.pointSize * letterSpacingRatio
+            return widths.reduce(0, +) + spacing * CGFloat(max(text.count - 1, 0))
+        }
+
+        var font = baseFont
+        let minPointSize: CGFloat = baseFont.pointSize * 0.4
+        while arcLength(of: font) > maxArcLength && font.pointSize > minPointSize {
+            font = font.withSize(font.pointSize * 0.92)
+        }
+        return font
+    }
+
+    /// Draws `text` along a circular arc centered on `center`, one glyph at
+    /// a time, using the standard "rotate half a glyph's angle, draw,
+    /// rotate the other half" technique so widths never drift out of
+    /// alignment. `upsideDown` both reverses the walking direction and
+    /// flips each glyph 180° — required for text arced along the *bottom*
+    /// of a circle to read right-side up and left-to-right, since the
+    /// tangent direction there is mirrored relative to the top.
+    private static func drawTextOnArc(
+        _ text: String,
+        context: CGContext,
+        center: CGPoint,
+        radius: CGFloat,
+        font: UIFont,
+        letterSpacingRatio: CGFloat,
+        upsideDown: Bool
+    ) {
+        guard !text.isEmpty else { return }
+
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor.black]
+        let letterSpacing = font.pointSize * letterSpacingRatio
+        let chars = Array(text)
+        let widths = chars.map { (String($0) as NSString).size(withAttributes: attributes).width }
+        let totalArcLength = widths.reduce(0, +) + letterSpacing * CGFloat(max(chars.count - 1, 0))
+        let totalAngle = totalArcLength / radius
+        let direction: CGFloat = upsideDown ? -1 : 1
+
+        context.saveGState()
+        context.translateBy(x: center.x, y: center.y)
+        context.rotate(by: -(totalAngle / 2) * direction)
+
+        for (index, ch) in chars.enumerated() {
+            let charAngle = (widths[index] / radius) * direction
+            context.rotate(by: charAngle / 2)
+
+            context.saveGState()
+            context.translateBy(x: 0, y: -radius)
+            if upsideDown {
+                context.rotate(by: .pi)
+            }
+            let str = String(ch) as NSString
+            let glyphSize = str.size(withAttributes: attributes)
+            str.draw(at: CGPoint(x: -glyphSize.width / 2, y: -glyphSize.height / 2), withAttributes: attributes)
+            context.restoreGState()
+
+            var spacingAngle: CGFloat = 0
+            if index < chars.count - 1 {
+                spacingAngle = (letterSpacing / radius) * direction
+            }
+            context.rotate(by: charAngle / 2 + spacingAngle)
+        }
+
+        context.restoreGState()
     }
 }
