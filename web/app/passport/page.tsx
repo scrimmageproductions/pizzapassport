@@ -4,10 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import Image from "next/image";
 import Link from "next/link";
-import { Pencil, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Pencil, X, MapPin } from "lucide-react";
 import clsx from "clsx";
 import { useLocalProfile } from "@/lib/useLocalProfile";
 import { getBrowserSupabaseClient } from "@/lib/supabase/client";
+import { getCurrentPosition, GeolocationDeniedError } from "@/lib/geo";
 import type { Entry } from "@/lib/types";
 import PlateRating from "@/components/PlateRating";
 import CheckeredBand from "@/components/CheckeredBand";
@@ -229,6 +231,32 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 function EmptyState() {
+  const router = useRouter();
+  const [locating, setLocating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // One tap here is the whole "magic moment": request location (a user
+  // gesture, so the browser prompt isn't blocked), then hand the resolved
+  // coordinates straight to /check-in so it can search nearby pizzerias
+  // immediately — no second location prompt needed.
+  async function handleFindNearby() {
+    setLocating(true);
+    setError(null);
+    try {
+      const position = await getCurrentPosition();
+      router.push(`/check-in?lat=${position.lat}&lng=${position.lng}`);
+    } catch (err) {
+      setError(
+        err instanceof GeolocationDeniedError
+          ? "Location access denied — you can still search manually on the next screen."
+          : err instanceof Error
+          ? err.message
+          : "Couldn't get your location."
+      );
+      setLocating(false);
+    }
+  }
+
   return (
     <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] p-12 text-center">
       <div aria-hidden="true" className="absolute inset-0 bg-cornmeal opacity-[0.18]" />
@@ -236,9 +264,20 @@ function EmptyState() {
       <div className="relative flex flex-col items-center gap-4">
         <span className="text-4xl">🍕</span>
         <h2 className="font-serif text-xl font-bold text-mozzarella">Your passport is empty</h2>
-        <p className="text-sm text-mozzarella/60">Check in at your first pizzeria to earn a stamp.</p>
-        <Link href="/check-in" className="rounded-full bg-tomato px-6 py-2.5 text-sm font-bold text-mozzarella">
-          Check In
+        <p className="text-sm text-mozzarella/60">Get your first stamp in under 30 seconds.</p>
+
+        <button
+          onClick={handleFindNearby}
+          disabled={locating}
+          className="flex items-center gap-2 rounded-full bg-tomato px-6 py-2.5 text-sm font-bold text-mozzarella disabled:opacity-60"
+        >
+          <MapPin className="h-4 w-4" />
+          {locating ? "Finding pizza near you…" : "Check in at a pizzeria near you"}
+        </button>
+        {error ? <p className="text-xs text-tomato">{error}</p> : null}
+
+        <Link href="/check-in" className="text-xs text-mozzarella/40 underline">
+          or check in manually
         </Link>
       </div>
     </div>

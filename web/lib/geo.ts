@@ -1,0 +1,156 @@
+export interface Coordinates {
+  lat: number;
+  lng: number;
+}
+
+export interface NearbyPlace {
+  /** Stable id for this venue (an OpenStreetMap node id) — stored on the
+   * entry as `place_id` for de-duplication and future "trending
+   * pizzerias" features. */
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  address?: string;
+  distanceMeters: number;
+}
+
+export interface ReverseGeocodeResult {
+  label: string;
+  city: string;
+}
+
+/** Thrown specifically for a permission denial, so callers can show a
+ * "you'll need to allow location access" message instead of a generic error. */
+export class GeolocationDeniedError extends Error {}
+
+/** Maximum distance (meters) a device may be from a selected pizzeria for
+ * a check-in to count as "there" — generous enough to absorb typical GPS
+ * drift and imprecise OpenStreetMap coordinates. */
+export const MAX_CHECKIN_DISTANCE_METERS = 500;
+
+/** Wraps the browser Geolocation API in a Promise with friendlier errors. */
+export function getCurrentPosition(options: PositionOptions = {}): Promise<Coordinates> {
+  return new Promise((resolve, reject) => {
+    if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
+      reject(new Error("Geolocation isn't available in this browser."));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => resolve({ lat: position.coords.latitude, lng: position.coords.longitude }),
+      (error) => {
+        if (error.code === error.PERMISSION_DENIED) {
+          reject(new GeolocationDeniedError("Location access was denied."));
+        } else {
+          reject(new Error(error.message || "Couldn't determine your location."));
+        }
+      },
+      { enableHighAccuracy: true, timeout: 10_000, maximumAge: 60_000, ...options }
+    );
+  });
+}
+
+/** Great-circle distance between two coordinates, in meters. */
+export function haversineDistanceMeters(a: Coordinates, b: Coordinates): number {
+  const earthRadiusMeters = 6_371_000;
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * earthRadiusMeters * Math.asin(Math.sqrt(h));
+}
+
+/**
+ * Reverse geocodes a coordinate into a human-readable city label using
+ * OpenStreetMap's free Nominatim API — no key required.
+ *
+ * Nominatim's usage policy is meant for light, occasional lookups (one per
+ * check-in, which is exactly this call pattern) and may rate-limit or
+ * block heavier traffic. For production scale, self-host Nominatim or
+ * swap this out for a paid geocoder (e.g. Google Geocoding) — every
+ * caller here goes through this one function, so that's a localized change.
+ */
+export async function reverseGeocode(coords: Coordinates): Promise<ReverseGeocodeResult | null> {
+  try {
+    const url = new URL("https://nominatim.openstreetmap.org/reverse");
+    url.searchParams.set("format", "jsonv2");
+    url.searchParams.set("lat", String(coords.lat));
+    url.searchParams.set("lon", String(coords.lng));
+    url.searchParams.set("zoom", "14");
+
+    const response = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    const address = data.address ?? {};
+    const city: string = address.city ?? address.town ?? address.village ?? address.county ?? "";
+    const country: string = address.country ?? "";
+    const label = [city, country].filter(Boolean).join(", ");
+    return label ? { label, city } : null;
+  } catch {
+    // Network hiccup or the free API is temporarily unavailable — the
+    // check-in flow treats this as "no city detected" and lets the user
+    // type one in manually rather than blocking on it.
+    return null;
+  }
+}
+
+interface OverpassElement {
+  id: number;
+  lat: number;
+  lon: number;
+  tags?: Record<string, string>;
+}
+
+/**
+ * Finds nearby pizza-serving venues via OpenStreetMap's free Overpass
+ * API — no key required. Matches restaurants/fast-food/cafes tagged
+ * `cuisine=pizza` plus anything with "pizza" in its name, within
+ * `radiusMeters`, sorted nearest-first.
+ */
+export async function searchNearbyPizzerias(
+  coords: Coordinates,
+  radiusMeters = 1500
+): Promise<NearbyPlace[]> {
+  const query = `[out:json][timeout:15];(node["amenity"~"restaurant|fast_food|cafe"]["cuisine"~"pizza",i](around:${radiusMeters},${coords.lat},${coords.lng});node["name"~"pizza",i](around:${radiusMeters},${coords.lat},${coords.lng}););out center 30;`;
+
+  try {
+    const response = await fetch("https://overpass-api.de/api/interpreter", {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: query,
+    });
+    if (!response.ok) return [];
+
+    const data = await response.json();
+    const elements: OverpassElement[] = data.elements ?? [];
+
+    const seenNames = new Set<string>();
+    const places: NearbyPlace[] = [];
+    for (const element of elements) {
+      const name = element.tags?.name;
+      if (!name || seenNames.has(name.toLowerCase())) continue;
+      seenNames.add(name.toLowerCase());
+
+      const placeCoords = { lat: element.lat, lng: element.lon };
+      places.push({
+        id: `osm:${element.id}`,
+        name,
+        lat: element.lat,
+        lng: element.lon,
+        address:
+          [element.tags?.["addr:housenumber"], element.tags?.["addr:street"]].filter(Boolean).join(" ") ||
+          undefined,
+        distanceMeters: haversineDistanceMeters(coords, placeCoords),
+      });
+    }
+
+    return places.sort((a, b) => a.distanceMeters - b.distanceMeters).slice(0, 12);
+  } catch {
+    // Same reasoning as reverseGeocode: fail soft into an empty list so the
+    // manual-entry fallback stays available.
+    return [];
+  }
+}
