@@ -7,6 +7,12 @@ export interface StampOptions {
   /** Deterministic seed for distress + rotation — pass a stable hash (see
    * `seedFromString`) so the same restaurant always renders the same look. */
   seed?: number;
+  /** If the source logo can't be loaded or its pixels can't be read back
+   * (e.g. still blocked by CORS even through the proxy), render the
+   * full-name arc badge instead of the bare vector glyph — pass these so
+   * that fallback has real content instead of just an icon. */
+  fallbackRestaurantName?: string;
+  fallbackLocation?: string;
 }
 
 /** Deterministic string -> 32-bit seed, so a restaurant name/id always
@@ -175,17 +181,29 @@ export async function generateInkStamp(
     return output.toDataURL("image/png");
   } catch (error) {
     console.warn(
-      "generateInkStamp: falling back to a vector stamp (source image likely blocked by CORS):",
+      "generateInkStamp: source logo couldn't be loaded/read (likely CORS) — falling back:",
       error
     );
+
+    // Prefer the proper name-arc vintage badge over the bare glyph — it's
+    // same-origin canvas artwork (a data: URL), so this recursive call
+    // always lands in the `try` branch above, never back in this `catch`.
+    if (options.fallbackRestaurantName) {
+      const artwork = createArcTextArtwork(options.fallbackRestaurantName, options.fallbackLocation ?? "", size);
+      return generateInkStamp(artwork, { size, inkColor, seed });
+    }
+
     return createFallbackStamp(size, inkColor, seed);
   }
 }
 
 /**
- * Draws a generic pizza-slice glyph inside a rotated dashed ring, tinted
- * with the ink color, entirely via vector canvas drawing — no external
- * image needed. Used when a source logo can't be read back due to CORS.
+ * Draws a vintage circular badge — a pizza-slice glyph centered inside a
+ * double-ring stamp border, tinted with the ink color — entirely via
+ * vector canvas drawing, no external image needed. This is the true last
+ * resort, used only when a source logo fails *and* no restaurant name was
+ * available to build the proper name-arc badge (see `fallbackRestaurantName`
+ * on `generateInkStamp`).
  */
 function createFallbackStamp(size: number, inkColor: InkColor, seed: number): string {
   const canvas = document.createElement("canvas");
@@ -200,14 +218,22 @@ function createFallbackStamp(size: number, inkColor: InkColor, seed: number): st
   ctx.translate(size / 2, size / 2);
   ctx.rotate((degrees * Math.PI) / 180);
 
+  // Outer solid ring + inner dashed ring — the "double-ring stamp border"
+  // look of a vintage rubber stamp, rather than a single plain circle.
   ctx.strokeStyle = ink;
-  ctx.lineWidth = size * 0.03;
-  ctx.setLineDash([size * 0.02, size * 0.015]);
+  ctx.lineWidth = size * 0.018;
   ctx.beginPath();
-  ctx.arc(0, 0, size * 0.42, 0, Math.PI * 2);
+  ctx.arc(0, 0, size * 0.44, 0, Math.PI * 2);
   ctx.stroke();
 
-  ctx.font = `${size * 0.32}px system-ui, sans-serif`;
+  ctx.lineWidth = size * 0.025;
+  ctx.setLineDash([size * 0.02, size * 0.015]);
+  ctx.beginPath();
+  ctx.arc(0, 0, size * 0.38, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.font = `${size * 0.3}px system-ui, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.globalAlpha = 0.9;

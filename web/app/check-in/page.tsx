@@ -24,6 +24,7 @@ import { CRUST_TYPES, INK_COLORS, POINTS_BASE_CHECKIN, POINTS_MENU_PHOTO_BONUS, 
 import { loadLocalEntries, saveLocalEntry, saveLocalMoment, compressImageToDataUrl } from "@/lib/localEntries";
 import PlateRating from "@/components/PlateRating";
 import PolaroidCard from "@/components/PolaroidCard";
+import StampCanvas from "@/components/StampCanvas";
 import SauceSplatter from "@/components/SauceSplatter";
 import MomentComposer from "@/components/MomentComposer";
 import GoogleReviewPrompt from "@/components/GoogleReviewPrompt";
@@ -119,14 +120,21 @@ function CheckInFlow() {
 
   // One-tap entry from the passport's empty state: /check-in?lat=&lng=
   // arrives with coordinates already resolved, so nearby search can start
-  // immediately without asking for location a second time.
+  // immediately without asking for location a second time. Arriving any
+  // other way (e.g. the nav bar) still auto-requests geolocation on mount
+  // — nearby pizzerias populate without the user having to tap "Find
+  // pizzerias near me" first. A denied/unavailable permission just leaves
+  // the existing manual-search UI in place; it's never a hard failure.
   useEffect(() => {
     if (autoLocateRan.current) return;
+    autoLocateRan.current = true;
+
     const lat = searchParams.get("lat");
     const lng = searchParams.get("lng");
     if (lat && lng) {
-      autoLocateRan.current = true;
       locateAndSearch({ lat: Number(lat), lng: Number(lng) });
+    } else {
+      useCurrentLocation();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
@@ -217,7 +225,12 @@ function CheckInFlow() {
         // the full-name arch stamp instead of ever truncating to a letter.
         const logo = await fetchLogoUrl(restaurantName);
         const dataUrl = logo
-          ? await generateInkStamp(logo.url, { inkColor, seed })
+          ? await generateInkStamp(logo.url, {
+              inkColor,
+              seed,
+              fallbackRestaurantName: restaurantName,
+              fallbackLocation: city,
+            })
           : await generateNameArchStamp(restaurantName, city, { inkColor, seed });
         setStampPreview(dataUrl);
         confetti({
@@ -829,16 +842,12 @@ function ReviewStep({
       <SectionTitle>Your Stamp</SectionTitle>
       <div className="relative flex h-40 w-40 items-center justify-center">
         <SauceSplatter className="absolute -bottom-3 -right-3" size={70} opacity={0.35} />
-        <div className="relative flex h-40 w-40 items-center justify-center rounded-full border-2 border-dashed border-tomato/30 bg-white/5">
-          {isGenerating ? (
-            <Loader2 className="h-8 w-8 animate-spin text-mozzarella/50" />
-          ) : stampPreview ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={stampPreview} alt="Ink stamp" className="h-32 w-32 object-contain" />
-          ) : (
-            <span className="text-3xl">🍕</span>
-          )}
-        </div>
+        <StampCanvas
+          stampDataUrl={stampPreview}
+          isGenerating={isGenerating}
+          seed={seedFromString(restaurantName)}
+          size={160}
+        />
       </div>
       <p className="font-serif text-lg font-bold text-mozzarella">{restaurantName}</p>
       <PlateRating value={rating} readOnly />

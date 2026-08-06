@@ -67,6 +67,11 @@ extension LocationService: CLLocationManagerDelegate {
 @MainActor
 final class PlaceSearchService: NSObject, ObservableObject {
     @Published private(set) var results: [MKLocalSearchCompletion] = []
+    /// Pizzerias found near a coordinate without the user typing anything —
+    /// populated by `searchNearby(near:)`, shown as a tappable list above
+    /// the search field so a check-in never *requires* manual typing.
+    @Published private(set) var nearbyResults: [Restaurant] = []
+    @Published private(set) var isSearchingNearby = false
 
     private let completer = MKLocalSearchCompleter()
 
@@ -82,6 +87,111 @@ final class PlaceSearchService: NSObject, ObservableObject {
             completer.region = region
         }
         completer.queryFragment = text
+    }
+
+    /// Finds nearby pizzerias through a two-tier fallback chain, mirroring
+    /// `searchNearbyPizzerias` in `web/lib/geo.ts`: MapKit's local search
+    /// (free, no key, Apple's own POI data) first, then OpenStreetMap's
+    /// Overpass API (free, no key, cross-platform-consistent with web) if
+    /// MapKit comes back empty. Chain restaurants are filtered out of
+    /// either source's results.
+    func searchNearby(near coordinate: CLLocationCoordinate2D, radiusMeters: CLLocationDistance = 1500) async {
+        isSearchingNearby = true
+        defer { isSearchingNearby = false }
+
+        let origin = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+
+        if let mapKitResults = try? await searchNearbyViaMapKit(coordinate: coordinate, radiusMeters: radiusMeters),
+           !mapKitResults.isEmpty {
+            nearbyResults = dedupedSortedByDistance(mapKitResults, from: origin)
+            return
+        }
+
+        let overpassResults = (try? await searchNearbyViaOverpass(coordinate: coordinate, radiusMeters: radiusMeters)) ?? []
+        nearbyResults = dedupedSortedByDistance(overpassResults, from: origin)
+    }
+
+    private func searchNearbyViaMapKit(
+        coordinate: CLLocationCoordinate2D,
+        radiusMeters: CLLocationDistance
+    ) async throws -> [Restaurant] {
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = "pizza"
+        request.region = MKCoordinateRegion(
+            center: coordinate,
+            latitudinalMeters: radiusMeters * 2,
+            longitudinalMeters: radiusMeters * 2
+        )
+        request.resultTypes = .pointOfInterest
+        request.pointOfInterestFilter = MKPointOfInterestFilter(including: [.restaurant, .bakery, .foodMarket])
+
+        let response = try await MKLocalSearch(request: request).start()
+        return response.mapItems.compactMap { item -> Restaurant? in
+            guard let name = item.name, !PizzaChainFilter.isChain(name) else { return nil }
+            let placemark = item.placemark
+            return Restaurant(
+                name: name,
+                address: placemark.thoroughfare ?? "",
+                city: placemark.locality ?? "",
+                coordinate: Coordinate(placemark.coordinate),
+                country: placemark.country
+            )
+        }
+    }
+
+    private func searchNearbyViaOverpass(
+        coordinate: CLLocationCoordinate2D,
+        radiusMeters: CLLocationDistance
+    ) async throws -> [Restaurant] {
+        let radius = Int(radiusMeters)
+        let query = """
+        [out:json][timeout:15];\
+        (node["amenity"~"restaurant|fast_food|cafe"]["cuisine"~"pizza",i](around:\(radius),\(coordinate.latitude),\(coordinate.longitude));\
+        node["name"~"pizza",i](around:\(radius),\(coordinate.latitude),\(coordinate.longitude)););\
+        out center 30;
+        """
+        guard let url = URL(string: "https://overpass-api.de/api/interpreter") else {
+            throw PlaceSearchError.invalidURL
+        }
+        var request = URLRequest(url: url, timeoutInterval: 12)
+        request.httpMethod = "POST"
+        request.httpBody = query.data(using: .utf8)
+        request.setValue("text/plain", forHTTPHeaderField: "Content-Type")
+
+        let (data, _) = try await URLSession.shared.data(for: request)
+        let decoded = try JSONDecoder().decode(OverpassResponse.self, from: data)
+
+        return decoded.elements.compactMap { element -> Restaurant? in
+            guard let name = element.tags?["name"], !PizzaChainFilter.isChain(name) else { return nil }
+            let address = [element.tags?["addr:housenumber"], element.tags?["addr:street"]]
+                .compactMap { $0 }
+                .joined(separator: " ")
+            return Restaurant(
+                name: name,
+                address: address,
+                city: "",
+                coordinate: Coordinate(latitude: element.lat, longitude: element.lon)
+            )
+        }
+    }
+
+    /// Case-insensitive de-dup by name (MapKit and Overpass can both surface
+    /// the same venue with slightly different metadata), sorted nearest
+    /// `origin` first.
+    private func dedupedSortedByDistance(_ restaurants: [Restaurant], from origin: CLLocation) -> [Restaurant] {
+        var seenNames = Set<String>()
+        var unique: [Restaurant] = []
+        for restaurant in restaurants {
+            let key = restaurant.name.lowercased()
+            guard !seenNames.contains(key) else { continue }
+            seenNames.insert(key)
+            unique.append(restaurant)
+        }
+        return unique.sorted { a, b in
+            let distanceA = origin.distance(from: CLLocation(latitude: a.coordinate.latitude, longitude: a.coordinate.longitude))
+            let distanceB = origin.distance(from: CLLocation(latitude: b.coordinate.latitude, longitude: b.coordinate.longitude))
+            return distanceA < distanceB
+        }
     }
 
     func resolve(_ completion: MKLocalSearchCompletion) async -> Restaurant? {
@@ -109,6 +219,20 @@ final class PlaceSearchService: NSObject, ObservableObject {
     private func googlePlacesPhotoURL(for item: MKMapItem) -> URL? {
         nil
     }
+}
+
+enum PlaceSearchError: Error {
+    case invalidURL
+}
+
+private struct OverpassElement: Decodable {
+    let lat: Double
+    let lon: Double
+    let tags: [String: String]?
+}
+
+private struct OverpassResponse: Decodable {
+    let elements: [OverpassElement]
 }
 
 extension PlaceSearchService: MKLocalSearchCompleterDelegate {

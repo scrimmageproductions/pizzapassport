@@ -16,6 +16,7 @@ struct CheckInView: View {
     @State private var step: Step = .place
     @State private var searchText = ""
     @State private var selectedRestaurant: Restaurant?
+    @State private var didSearchNearby = false
 
     @State private var atmosphereItem: PhotosPickerItem?
     @State private var actionItem: PhotosPickerItem?
@@ -71,6 +72,23 @@ struct CheckInView: View {
         }
         .preferredColorScheme(.dark)
         .onAppear { locationService.requestPermission() }
+        .task {
+            // Auto-request location and populate nearby pizzerias without
+            // requiring the user to type anything — mirrors the web
+            // check-in flow's auto-geolocation-on-mount behavior. Polls
+            // briefly for `userLocation` to arrive from CLLocationManager's
+            // async delegate callbacks; gives up after ~10s so a denied or
+            // slow permission never blocks the manual search field below.
+            guard !didSearchNearby else { return }
+            for _ in 0..<20 {
+                if let coordinate = locationService.userLocation {
+                    didSearchNearby = true
+                    await placeSearch.searchNearby(near: coordinate)
+                    return
+                }
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+        }
         .task(id: atmosphereItem) {
             atmosphereData = await loadImageData(atmosphereItem)
         }
@@ -112,7 +130,7 @@ struct CheckInView: View {
                     placeSearch.updateQuery(newValue)
                 }
 
-            if !placeSearch.results.isEmpty {
+            if !placeSearch.results.isEmpty || !placeSearch.nearbyResults.isEmpty {
                 Text("🍕 Local & Artisanal Pizzerias Only")
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(PizzaTheme.basilGreen)
@@ -120,6 +138,37 @@ struct CheckInView: View {
                     .padding(.vertical, 4)
                     .background(PizzaTheme.basilGreen.opacity(0.15))
                     .clipShape(Capsule())
+            }
+
+            if searchText.isEmpty {
+                if placeSearch.isSearchingNearby {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Finding pizzerias near you…").foregroundStyle(.secondary)
+                    }
+                    .font(.caption)
+                } else if !placeSearch.nearbyResults.isEmpty {
+                    Text("NEARBY PIZZERIAS")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(PizzaTheme.mozzarellaCream.opacity(0.5))
+
+                    ForEach(placeSearch.nearbyResults) { restaurant in
+                        Button {
+                            selectedRestaurant = restaurant
+                            searchText = restaurant.name
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(restaurant.name).foregroundStyle(PizzaTheme.mozzarellaCream)
+                                if !restaurant.city.isEmpty {
+                                    Text(restaurant.city).font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(.vertical, 4)
+                        Divider().overlay(PizzaTheme.mozzarellaCream.opacity(0.1))
+                    }
+                }
             }
 
             ForEach(placeSearch.results, id: \.self) { completion in
@@ -358,13 +407,21 @@ struct CheckInView: View {
         defer { isGeneratingStamp = false }
 
         let seed = UInt64(bitPattern: Int64(restaurant.id.hashValue))
-        if let logo = try? await LogoFetchService().fetchLogo(for: restaurant) {
-            generatedStamp = StampInkFilter().makeStamp(from: logo, inkColor: inkColor, seed: seed)
+        let filter = StampInkFilter()
+
+        // Two independent reasons to fall back to the name-arch badge: no
+        // logo was found at all, OR one was found but `makeStamp` couldn't
+        // turn it into a stamp (e.g. a favicon that decodes to a 1x1 pixel
+        // or otherwise degenerate image). Previously the second case left
+        // `generatedStamp` silently `nil` instead of ever falling back.
+        if let logo = try? await LogoFetchService().fetchLogo(for: restaurant),
+           let stamp = filter.makeStamp(from: logo, inkColor: inkColor, seed: seed) {
+            generatedStamp = stamp
         } else {
             // All three real-artwork tiers (Places photo, Clearbit/Brandfetch,
-            // favicon) came up empty — stamp the full restaurant name instead
-            // of ever truncating to a single initial.
-            generatedStamp = StampInkFilter().makeNameArchStamp(
+            // favicon) came up empty or unusable — stamp the full restaurant
+            // name instead of ever truncating to a single initial.
+            generatedStamp = filter.makeNameArchStamp(
                 restaurantName: restaurant.name,
                 location: restaurant.city,
                 inkColor: inkColor,

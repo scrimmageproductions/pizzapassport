@@ -36,6 +36,19 @@ function urlLoads(url: string, timeoutMs = 4000): Promise<boolean> {
 }
 
 /**
+ * Routes an external image URL through `/api/proxy-image` so the Canvas
+ * ink-stamp engine (`generateInkStamp`) can read its pixel data back out
+ * without tainting the canvas — most favicon/logo services don't reliably
+ * send a permissive CORS header, and a proxied same-origin response
+ * sidesteps that entirely. Never applied to same-origin URLs (a `blob:`
+ * preview or already-proxied path), since those don't need it.
+ */
+function toProxiedUrl(url: string): string {
+  if (url.startsWith("/") || url.startsWith("blob:") || url.startsWith("data:")) return url;
+  return `/api/proxy-image?url=${encodeURIComponent(url)}`;
+}
+
+/**
  * Resolves a restaurant logo through a 3-tier international fallback
  * strategy, mirroring `LogoFetchService.swift` on iOS:
  *   1. An explicit Google Places photo URL, if one was already resolved.
@@ -44,13 +57,19 @@ function urlLoads(url: string, timeoutMs = 4000): Promise<boolean> {
  * Returns `null` if none of the three produce a real, loadable image —
  * callers should fall back to `generateNameArchStamp` (tier 4), which
  * stamps the full restaurant name instead of a logo.
+ *
+ * The winning URL is returned already wrapped in `/api/proxy-image` (see
+ * `toProxiedUrl`) — candidates are still probed against their raw URLs in
+ * `urlLoads` (an `<img>` tag can display a cross-origin image just fine;
+ * only *reading pixel data back* needs CORS), so only the one URL that's
+ * actually used pays the proxy round-trip.
  */
 export async function fetchLogoUrl(
   restaurantName: string,
   placesPhotoUrl?: string | null
 ): Promise<LogoFetchResult | null> {
   if (placesPhotoUrl && (await urlLoads(placesPhotoUrl))) {
-    return { url: placesPhotoUrl, source: "places" };
+    return { url: toProxiedUrl(placesPhotoUrl), source: "places" };
   }
 
   const domain = domainGuess(restaurantName);
@@ -58,12 +77,12 @@ export async function fetchLogoUrl(
 
   const brandUrl = `https://logo.clearbit.com/${domain}?size=256`;
   if (await urlLoads(brandUrl)) {
-    return { url: brandUrl, source: "brand-logo" };
+    return { url: toProxiedUrl(brandUrl), source: "brand-logo" };
   }
 
   const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=256`;
   if (await urlLoads(faviconUrl)) {
-    return { url: faviconUrl, source: "favicon" };
+    return { url: toProxiedUrl(faviconUrl), source: "favicon" };
   }
 
   return null;
