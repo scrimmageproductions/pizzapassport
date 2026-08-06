@@ -52,3 +52,27 @@ body {
     radial-gradient(circle at 6% 50%, rgba(209, 163, 79, 0.5) 0.8px, transparent 0.8px);
   background-size: 48px 48px, 64px 64px, 52px 52px, 70px 70px, 58px 58px, 44px 44px, 66px 66px, 40px 40px;
 }
+
+/* ============================================================
+   Passport entry page — a warm cream/parchment surface for the entry
+   detail card (see components/PassportEntryCard), styled to feel like a
+   physical visa page rather than another dark app panel.
+   ============================================================ */
+
+/* Warm paper base + a procedural fractal-noise grain (SVG feTurbulence,
+   no external asset) so the parchment doesn't read as a flat color fill. */
+.bg-parchment {
+  background-color: #fdfbf7;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0.42  0 0 0 0 0.33  0 0 0 0 0.24  0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 200px 200px;
+}
+
+/* A faint guilloché-style engraved security pattern — the fine
+   crosshatched waves printed on real visa/currency paper. Meant to sit
+   at ~4-6% opacity beneath the entry card's content. */
+.bg-guilloche {
+  background-image: repeating-linear-gradient(115deg, rgba(44, 26, 20, 0.5) 0px, transparent 1px, transparent 7px),
+    repeating-linear-gradient(65deg, rgba(44, 26, 20, 0.5) 0px, transparent 1px, transparent 7px),
+    repeating-radial-gradient(circle at 30% 40%, rgba(44, 26, 20, 0.4) 0px, transparent 1px, transparent 9px);
+  background-size: 22px 22px, 22px 22px, 60px 60px;
+}

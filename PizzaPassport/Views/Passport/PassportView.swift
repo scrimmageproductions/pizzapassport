@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 /// The main digital passport: a paged grid of collected ink stamps, styled
 /// like flipping through a physical passport booklet. Tapping a stamp opens
@@ -64,7 +63,7 @@ struct PassportView: View {
                 .environmentObject(store)
         }
         .sheet(item: $selectedEntry) { entry in
-            EntryDetailSheet(entry: entry) {
+            PassportDetailSheet(entry: entry) {
                 selectedEntry = nil
                 storyEntry = entry
             }
@@ -149,77 +148,6 @@ struct PassportView: View {
             Spacer()
             Spacer()
         }
-    }
-}
-
-/// Detail sheet shown when a stamp is tapped: full entry info, both photos,
-/// and a shortcut into the story exporter.
-private struct EntryDetailSheet: View {
-    let entry: PizzaEntry
-    var onExportStory: () -> Void
-
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    StampView(entry: entry, size: 140)
-                        .frame(maxWidth: .infinity)
-
-                    Group {
-                        Text(entry.restaurant.name)
-                            .font(.title2.bold())
-                        Text(entry.restaurant.city)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    HStack {
-                        Label(entry.crust.rawValue, systemImage: "circle.grid.cross")
-                        Spacer()
-                        PlateRatingBadge(rating: entry.rating)
-                    }
-                    .font(.subheadline)
-
-                    if !entry.notes.isEmpty {
-                        Text(entry.notes)
-                            .font(.body)
-                    }
-
-                    HStack(spacing: 12) {
-                        photoThumbnail(entry.atmospherePhotoData)
-                        photoThumbnail(entry.actionPhotoData)
-                    }
-
-                    Button("Create Story") { onExportStory() }
-                        .buttonStyle(.pizzaPrimary)
-                }
-                .padding()
-                .foregroundStyle(PizzaTheme.mozzarellaCream)
-            }
-            .background(PizzaTheme.backgroundGradient.ignoresSafeArea())
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
-                }
-            }
-        }
-        .preferredColorScheme(.dark)
-    }
-
-    private func photoThumbnail(_ data: Data) -> some View {
-        Group {
-            if let uiImage = UIImage(data: data) {
-                Image(uiImage: uiImage)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                Rectangle().fill(Color.gray.opacity(0.3))
-            }
-        }
-        .frame(height: 140)
-        .frame(maxWidth: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 

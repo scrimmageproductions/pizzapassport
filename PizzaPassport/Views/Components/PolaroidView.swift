@@ -17,6 +17,19 @@ struct PolaroidView: View {
     /// Stable per-entry seed so the paper grain and natural tilt don't
     /// re-roll on every re-render — pass a hash of the entry's identifier.
     var seed: UInt64 = 0
+    /// Pins the card's tilt to an exact angle instead of deriving it from
+    /// `seed` — used when a layout needs specific, complementary tilts for
+    /// multiple photos side by side (e.g. -2° and +3°).
+    var tiltDegrees: Double? = nil
+    /// Overrides the handwritten caption line normally built from
+    /// `restaurantName` — e.g. "Venue" vs. "You + the Slice" when the same
+    /// check-in's two photos are shown together.
+    var captionOverride: String? = nil
+    /// Suppresses the "CHECKED IN" placeholder badge shown when
+    /// `stampImageData` is absent — for layouts (like the passport detail
+    /// sheet) that overlay one shared ink stamp across multiple photos
+    /// instead of a per-photo placeholder.
+    var hideStampFallback: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -40,7 +53,7 @@ struct PolaroidView: View {
                 .allowsHitTesting(false)
         )
         .shadow(color: .black.opacity(0.35), radius: 14, x: 0, y: 10)
-        .rotationEffect(.degrees(naturalTilt))
+        .rotationEffect(.degrees(tiltDegrees ?? naturalTilt))
     }
 
     /// A tiny, stable "it was tossed onto the page" tilt for the whole
@@ -72,7 +85,7 @@ struct PolaroidView: View {
                     .rotationEffect(.degrees(stampRotation))
                     .opacity(0.92)
                     .padding(10)
-            } else {
+            } else if !hideStampFallback {
                 CheckedInStampBadge(date: date, rotation: stampRotation)
                     .padding(10)
             }
@@ -82,7 +95,7 @@ struct PolaroidView: View {
 
     private var captionBanner: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(restaurantName)
+            Text(captionOverride ?? restaurantName)
                 // "Bradley Hand" ships free with iOS — a genuine
                 // handwritten-marker look with zero bundled font assets.
                 // Swap in a downloaded Caveat.ttf via Info.plist's

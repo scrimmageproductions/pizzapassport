@@ -17,6 +17,19 @@ interface PolaroidCardProps {
   /** Stable per-entry seed so the paper grain and natural card tilt don't
    * re-roll on every re-render — pass a hash of the entry's identifier. */
   seed?: number;
+  /** Pins the card's tilt to an exact angle instead of deriving it from
+   * `seed` — used when a layout needs specific, complementary tilts for
+   * multiple photos side by side (e.g. -2° and +3°). */
+  tiltDegrees?: number;
+  /** Overrides the handwritten caption line normally built from
+   * `restaurantName` — e.g. "Venue" vs. "You + the Slice" when the same
+   * check-in's two photos are shown together. */
+  captionOverride?: string;
+  /** Suppresses the "CHECKED IN" placeholder badge shown when `stampUrl`
+   * is absent — for layouts (like the passport entry card) that overlay
+   * one shared ink stamp across multiple photos instead of a per-photo
+   * placeholder. */
+  hideStampFallback?: boolean;
 }
 
 /**
@@ -35,6 +48,9 @@ export default function PolaroidCard({
   vintageFilter = true,
   stampRotation = -12,
   seed = 0,
+  tiltDegrees,
+  captionOverride,
+  hideStampFallback = false,
 }: PolaroidCardProps) {
   const dateLabel = useMemo(() => {
     const d = typeof date === "string" ? new Date(date) : date;
@@ -42,9 +58,11 @@ export default function PolaroidCard({
   }, [date]);
 
   // Deterministic, seeded "natural" tilt + grain dot positions, so a given
-  // entry always renders the same instead of re-rolling on every render.
-  const tilt = useMemo(() => (seededRandom(seed) - 0.5) * 4, [seed]);
+  // entry always renders the same instead of re-rolling on every render —
+  // unless the caller pins an exact angle via `tiltDegrees`.
+  const tilt = useMemo(() => tiltDegrees ?? (seededRandom(seed) - 0.5) * 4, [seed, tiltDegrees]);
   const grainDots = useMemo(() => makeGrainDots(seed), [seed]);
+  const caption = captionOverride ?? restaurantName;
 
   return (
     <div
@@ -69,7 +87,7 @@ export default function PolaroidCard({
             className="pointer-events-none absolute right-2 top-2 h-16 w-16 object-contain opacity-90"
             style={{ transform: `rotate(${stampRotation}deg)` }}
           />
-        ) : (
+        ) : hideStampFallback ? null : (
           <div
             className="pointer-events-none absolute right-2 top-2 rounded border-2 border-tomato/70 px-2 py-1 text-center text-tomato"
             style={{ transform: `rotate(${stampRotation}deg)` }}
@@ -88,8 +106,8 @@ export default function PolaroidCard({
       </div>
 
       <div className="px-1 pt-3">
-        <p className={`${caveat.className} truncate text-2xl text-[#262220]`} title={restaurantName}>
-          {restaurantName}
+        <p className={`${caveat.className} truncate text-2xl text-[#262220]`} title={caption}>
+          {caption}
         </p>
         {location ? (
           <p className="text-[10px] font-semibold uppercase tracking-wide text-black/40">{location}</p>

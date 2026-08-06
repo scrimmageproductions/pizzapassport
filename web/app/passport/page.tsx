@@ -5,16 +5,16 @@ import { AnimatePresence, motion } from "framer-motion";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Pencil, X, MapPin } from "lucide-react";
+import { Pencil, MapPin } from "lucide-react";
 import clsx from "clsx";
 import { useLocalProfile } from "@/lib/useLocalProfile";
 import { getBrowserSupabaseClient } from "@/lib/supabase/client";
 import { getCurrentPosition, GeolocationDeniedError } from "@/lib/geo";
 import { loadLocalEntries } from "@/lib/localEntries";
 import type { Entry } from "@/lib/types";
-import PlateRating from "@/components/PlateRating";
 import CheckeredBand from "@/components/CheckeredBand";
 import SauceSplatter from "@/components/SauceSplatter";
+import PassportDetailModal from "@/components/PassportDetailModal";
 
 const STAMPS_PER_PAGE = 6;
 
@@ -189,7 +189,7 @@ export default function PassportPage() {
         </>
       )}
 
-      <EntryModal entry={selectedEntry} onClose={() => setSelectedEntry(null)} />
+      <PassportDetailModal entry={selectedEntry} onClose={() => setSelectedEntry(null)} />
     </div>
   );
 }
@@ -313,65 +313,3 @@ function EmptyState() {
   );
 }
 
-function EntryModal({ entry, onClose }: { entry: Entry | null; onClose: () => void }) {
-  if (!entry) return null;
-
-  return (
-    <div
-      className="fixed inset-0 z-30 flex items-center justify-center bg-black/70 p-4"
-      onClick={onClose}
-      role="presentation"
-    >
-      <div
-        className="w-full max-w-sm rounded-3xl border border-white/10 bg-charcoal p-6"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-4 flex items-start justify-between">
-          <div>
-            <h3 className="font-serif text-xl font-bold text-mozzarella">{entry.restaurant_name}</h3>
-            <p className="text-xs uppercase tracking-wide text-mozzarella/50">
-              {entry.crust_type} ·{" "}
-              {new Date(entry.created_at).toLocaleDateString("en-US", {
-                month: "short",
-                day: "numeric",
-                year: "numeric",
-              })}
-              {" · "}
-              <span title="Display serial">No. {entry.serial_number}</span>
-            </p>
-          </div>
-          <button onClick={onClose} className="text-mozzarella/50 hover:text-mozzarella">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <div className="mb-4 grid grid-cols-2 gap-2">
-          <div className="relative aspect-square overflow-hidden rounded-xl">
-            <Image src={entry.venue_photo_url} alt="Venue" fill className="object-cover" />
-          </div>
-          <div className="relative aspect-square overflow-hidden rounded-xl">
-            <Image src={entry.selfie_photo_url} alt="Selfie" fill className="object-cover" />
-          </div>
-        </div>
-
-        <PlateRating value={entry.rating} readOnly />
-
-        {entry.place_id ? (
-          <Link
-            href={`/place/${encodeURIComponent(entry.place_id)}`}
-            className="mt-4 block text-center text-xs font-semibold text-crust hover:underline"
-          >
-            See all Moments at {entry.restaurant_name} →
-          </Link>
-        ) : null}
-
-        <Link
-          href={`/story/${entry.id}`}
-          className="mt-3 block rounded-full bg-tomato px-4 py-2.5 text-center text-sm font-bold text-mozzarella"
-        >
-          Create Story
-        </Link>
-      </div>
-    </div>
-  );
-}
