@@ -76,6 +76,11 @@ create table if not exists public.entries (
   -- expensive per-row geocode lookup. Nullable — older rows and offline
   -- check-ins may not have it.
   country           text,
+  -- Set only via the security-definer public.submit_owner_reply() RPC
+  -- (see schema_merchants.sql) — never through a direct client UPDATE, so
+  -- a verified merchant can never overwrite the customer's own fields.
+  owner_reply       text,
+  owner_replied_at  timestamptz,
   created_at        timestamptz not null default now()
 );
 

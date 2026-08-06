@@ -140,13 +140,44 @@ actor SupabaseService {
             .execute()
             .value
 
+        let placeIDs = Set(rows.compactMap(\.placeID))
+        let verifiedPlaceIDs = await fetchVerifiedPlaceIDs(Array(placeIDs))
+
         var hydratedEntries: [PizzaEntry] = []
         for row in rows {
-            if let entry = await row.hydrated() {
+            let isVerified = row.placeID.map { verifiedPlaceIDs.contains($0) } ?? false
+            if let entry = await row.hydrated(isVerifiedVenue: isVerified) {
                 hydratedEntries.append(entry)
             }
         }
         return hydratedEntries
+    }
+
+    /// Cross-references a batch of place ids against `public.merchants`,
+    /// returning only the ones with a verified owner — powers the
+    /// "Verified Pizzeria ✓" badge in `PassportDetailSheet`. Note: only
+    /// entries with a `place_id` set can ever show this badge; check-ins
+    /// created by this app don't populate one yet (see `saveEntry`'s
+    /// `RemoteEntry` construction), so this only lights up today for
+    /// venues also checked into from the web app, which does.
+    private func fetchVerifiedPlaceIDs(_ placeIDs: [String]) async -> Set<String> {
+        guard !placeIDs.isEmpty else { return [] }
+        struct MerchantPlaceIDRow: Decodable {
+            let placeID: String
+            enum CodingKeys: String, CodingKey { case placeID = "place_id" }
+        }
+        do {
+            let rows: [MerchantPlaceIDRow] = try await client
+                .from("merchants")
+                .select("place_id")
+                .in("place_id", values: placeIDs)
+                .eq("is_verified", value: true)
+                .execute()
+                .value
+            return Set(rows.map(\.placeID))
+        } catch {
+            return []
+        }
     }
 
     /// Uploads photos, then upserts the check-in row under the current
@@ -266,6 +297,16 @@ struct RemoteEntry: Codable, Sendable, Identifiable {
     var inkColor: String
     /// Reverse-geocoded at check-in time — powers the world map.
     var country: String?
+    /// Shared venue identifier (see `web/lib/geo.ts`'s `place_id` space) —
+    /// nullable because this app doesn't populate one on write yet (see
+    /// `saveEntry`); entries checked into via the web app do have one.
+    /// Defaulted to `nil` so `saveEntry`'s `RemoteEntry(...)` construction
+    /// (which never sets these three) doesn't need updating.
+    var placeID: String? = nil
+    /// Set only via the `submit_owner_reply` RPC (see
+    /// schema_merchants.sql) — never written directly from this app.
+    var ownerReply: String? = nil
+    var ownerRepliedAt: Date? = nil
     var createdAt: Date
 
     enum CodingKeys: String, CodingKey {
@@ -281,6 +322,9 @@ struct RemoteEntry: Codable, Sendable, Identifiable {
         case stampImageURL = "stamp_image_url"
         case inkColor = "ink_color"
         case country
+        case placeID = "place_id"
+        case ownerReply = "owner_reply"
+        case ownerRepliedAt = "owner_replied_at"
         case createdAt = "created_at"
     }
 }
@@ -321,7 +365,7 @@ extension RemoteEntry {
     /// be materialized into a fully offline-capable `PizzaEntry` for local
     /// caching. Returns `nil` if any URL/asset is invalid or unreachable,
     /// or the crust/ink enums no longer match a known case.
-    func hydrated() async -> PizzaEntry? {
+    func hydrated(isVerifiedVenue: Bool = false) async -> PizzaEntry? {
         guard let crust = CrustType(rawValue: crustType),
               let ink = StampInkColor(rawValue: inkColor),
               let venueURL = URL(string: venuePhotoURL),
@@ -362,7 +406,10 @@ extension RemoteEntry {
             actionPhotoData: selfieData,
             menuPhotoData: menuData,
             stampImageData: stampData,
-            pointsEarned: pointsEarned
+            pointsEarned: pointsEarned,
+            ownerReply: ownerReply,
+            ownerRepliedAt: ownerRepliedAt,
+            isVerifiedVenue: isVerifiedVenue
         )
     }
 

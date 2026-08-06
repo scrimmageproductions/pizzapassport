@@ -59,6 +59,37 @@ export interface Entry {
   /** Human-readable display serial ("Stamp No. 4821"), auto-assigned. */
   serial_number: number;
   claim_method: ClaimMethod;
+  /** Set only via the `submit_owner_reply` RPC (see
+   * schema_merchants.sql) — never written directly by the client. */
+  owner_reply: string | null;
+  owner_replied_at: string | null;
+  created_at: string;
+}
+
+/** A verified pizzeria owner account — see schema_merchants.sql. Created
+ * exclusively via `/api/merchants/claim`; never inserted directly by a
+ * client, so `is_verified` can be trusted. */
+export interface Merchant {
+  id: string;
+  business_name: string;
+  business_email: string;
+  phone_number: string | null;
+  place_id: string;
+  is_verified: boolean;
+  official_logo_url: string | null;
+  custom_stamp_ink_color: string;
+  custom_stamp_style: string;
+  stamp_texture_density: number;
+  stamp_edge_distress: number;
+  created_at: string;
+}
+
+/** One row of `public.story_share_events`, aggregated for the merchant
+ * dashboard's "Total Story Shares" metric. */
+export interface StoryShareEvent {
+  id: string;
+  entry_id: string;
+  platform: string;
   created_at: string;
 }
 

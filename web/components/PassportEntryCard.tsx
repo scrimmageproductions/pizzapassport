@@ -1,10 +1,12 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { MapPin, Utensils } from "lucide-react";
+import { MapPin, Utensils, BadgeCheck, MessageSquare } from "lucide-react";
 import clsx from "clsx";
 import type { Entry } from "@/lib/types";
 import { seedFromString } from "@/lib/stampFilter";
+import { getBrowserSupabaseClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import PolaroidCard from "./PolaroidCard";
 
 function formatDate(iso: string): string {
@@ -60,6 +62,23 @@ function GoldPlateRating({ value }: { value: number }) {
 export default function PassportEntryCard({ entry }: { entry: Entry }) {
   const seed = seedFromString(entry.id);
   const stampNumber = String(entry.serial_number).padStart(3, "0");
+  const [isVerifiedVenue, setIsVerifiedVenue] = useState(false);
+
+  useEffect(() => {
+    if (!entry.place_id || !isSupabaseConfigured()) return;
+    let cancelled = false;
+    getBrowserSupabaseClient()
+      .from("merchants")
+      .select("id", { count: "exact", head: true })
+      .eq("place_id", entry.place_id)
+      .eq("is_verified", true)
+      .then(({ count }) => {
+        if (!cancelled) setIsVerifiedVenue((count ?? 0) > 0);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [entry.place_id]);
 
   return (
     <div className="relative overflow-hidden rounded-[28px] border-[6px] border-[#2C1A14] bg-[#FDFBF7] shadow-2xl shadow-black/50">
@@ -83,7 +102,17 @@ export default function PassportEntryCard({ entry }: { entry: Entry }) {
             <p className="font-mono text-[10px] font-bold uppercase tracking-[0.3em] text-[#2C1A14]/60">
               Visa / Entry Permit
             </p>
-            <h2 className="mt-1 truncate font-serif text-2xl font-bold">{entry.restaurant_name}</h2>
+            <h2 className="mt-1 flex items-center gap-1.5 truncate font-serif text-2xl font-bold">
+              <span className="truncate">{entry.restaurant_name}</span>
+              {isVerifiedVenue ? (
+                <span
+                  title="Verified Pizzeria"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full bg-gradient-to-br from-[#F9E3A0] to-[#8A6015] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[#1C1201]"
+                >
+                  <BadgeCheck className="h-3 w-3" /> Verified
+                </span>
+              ) : null}
+            </h2>
             {entry.country ? (
               <p className="mt-0.5 flex items-center gap-1 text-xs font-semibold text-[#2C1A14]/50">
                 <MapPin className="h-3 w-3" /> {entry.country}
@@ -149,6 +178,15 @@ export default function PassportEntryCard({ entry }: { entry: Entry }) {
         <div className="mt-4">
           <GoldPlateRating value={entry.rating} />
         </div>
+
+        {entry.owner_reply ? (
+          <div className="mt-4 rounded-xl border border-[#8A6015]/30 bg-[#8A6015]/10 p-3">
+            <p className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-[#8A6015]">
+              <MessageSquare className="h-3 w-3" /> Official Pizzeria Response
+            </p>
+            <p className="text-sm text-[#2C1A14]/90">{entry.owner_reply}</p>
+          </div>
+        ) : null}
 
         {/* Actions */}
         <div className="mt-6 space-y-2 border-t border-[#2C1A14]/15 pt-4">

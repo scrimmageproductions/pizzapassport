@@ -22,6 +22,7 @@ import {
 } from "@/lib/geo";
 import { CRUST_TYPES, INK_COLORS, POINTS_BASE_CHECKIN, POINTS_MENU_PHOTO_BONUS, type InkColor } from "@/lib/constants";
 import { loadLocalEntries, saveLocalEntry, saveLocalMoment, compressImageToDataUrl } from "@/lib/localEntries";
+import type { Merchant } from "@/lib/types";
 import PlateRating from "@/components/PlateRating";
 import PolaroidCard from "@/components/PolaroidCard";
 import StampCanvas from "@/components/StampCanvas";
@@ -185,6 +186,16 @@ function CheckInFlow() {
 
   const isTooFar = distanceToSelectedPlace !== null && distanceToSelectedPlace > MAX_CHECKIN_DISTANCE_METERS;
 
+  // Every check-in gets a place_id now — either the matched OpenStreetMap
+  // venue, or a synthesized one for manual entries — computed once here so
+  // the stamp-generation step (which needs it to check for a merchant's
+  // official stamp override) and the save step both agree on the same id.
+  const placeId = useMemo(() => {
+    if (selectedPlace) return selectedPlace.id;
+    if (!coords || !restaurantName.trim()) return null;
+    return synthesizePlaceId(restaurantName, coords);
+  }, [selectedPlace, coords, restaurantName]);
+
   function handleFile(kind: "venue" | "selfie" | "menu", file: File | null) {
     if (!file) return;
     const url = URL.createObjectURL(file);
@@ -220,18 +231,37 @@ function CheckInFlow() {
       setIsGeneratingStamp(true);
       try {
         const seed = seedFromString(restaurantName + inkColor);
-        // 3-tier international logo fetch (Places photo -> Clearbit/
-        // Brandfetch -> favicon); if all three come up empty, fall back to
-        // the full-name arch stamp instead of ever truncating to a letter.
-        const logo = await fetchLogoUrl(restaurantName);
-        const dataUrl = logo
-          ? await generateInkStamp(logo.url, {
-              inkColor,
-              seed,
-              fallbackRestaurantName: restaurantName,
-              fallbackLocation: city,
-            })
-          : await generateNameArchStamp(restaurantName, city, { inkColor, seed });
+        const merchantOverride = await fetchVerifiedMerchantStamp();
+
+        let dataUrl: string;
+        if (merchantOverride?.official_logo_url) {
+          // This pizzeria has an official, merchant-designed stamp — use
+          // it (and their chosen ink/texture settings) instead of ever
+          // generating one from a fetched logo or the name-arch fallback.
+          dataUrl = await generateInkStamp(merchantOverride.official_logo_url, {
+            inkColor: (merchantOverride.custom_stamp_ink_color as InkColor) || inkColor,
+            textureDensity: merchantOverride.stamp_texture_density,
+            edgeDistress: merchantOverride.stamp_edge_distress,
+            seed,
+            fallbackRestaurantName: restaurantName,
+            fallbackLocation: city,
+          });
+        } else {
+          // 3-tier international logo fetch (Places photo -> Clearbit/
+          // Brandfetch -> favicon); if all three come up empty, fall back
+          // to the full-name arch stamp instead of ever truncating to a
+          // letter.
+          const logo = await fetchLogoUrl(restaurantName);
+          dataUrl = logo
+            ? await generateInkStamp(logo.url, {
+                inkColor,
+                seed,
+                fallbackRestaurantName: restaurantName,
+                fallbackLocation: city,
+              })
+            : await generateNameArchStamp(restaurantName, city, { inkColor, seed });
+        }
+
         setStampPreview(dataUrl);
         confetti({
           particleCount: 80,
@@ -245,6 +275,27 @@ function CheckInFlow() {
     }
     const nextIndex = stepIndex + 1;
     if (nextIndex < STEPS.length) setStep(STEPS[nextIndex]);
+  }
+
+  /** Looks up whether this venue has a verified merchant with a
+   * custom-designed official stamp. Returns `null` (never throws) on any
+   * miss — offline mode, no place_id yet, no merchant, or a network
+   * error — so this is always safe to call as a "maybe" before the normal
+   * logo-fetch chain. */
+  async function fetchVerifiedMerchantStamp(): Promise<Merchant | null> {
+    if (isOfflineMode || !placeId) return null;
+    try {
+      const supabase = getBrowserSupabaseClient();
+      const { data } = await supabase
+        .from("merchants")
+        .select("*")
+        .eq("place_id", placeId)
+        .eq("is_verified", true)
+        .maybeSingle<Merchant>();
+      return data;
+    } catch {
+      return null;
+    }
   }
 
   function goBack() {
@@ -263,8 +314,9 @@ function CheckInFlow() {
       // Every check-in gets a place_id now — either the matched OpenStreetMap
       // venue, or a synthesized one for manual entries — so it always groups
       // under a pizzeria (see schema_moments.sql) instead of only ever
-      // living on this one user's passport.
-      const placeId = selectedPlace?.id ?? synthesizePlaceId(restaurantName, coords);
+      // living on this one user's passport. Reuses the same memoized value
+      // the stamp-generation step used to check for a merchant override.
+      const resolvedPlaceId = placeId ?? synthesizePlaceId(restaurantName, coords);
       const claimMethod = selectedPlace ? "geo" : "manual";
       const pointsEarned = POINTS_BASE_CHECKIN + (menuFile ? POINTS_MENU_PHOTO_BONUS : 0);
 
@@ -290,10 +342,12 @@ function CheckInFlow() {
           points_earned: pointsEarned,
           stamp_image_url: stampPreview,
           ink_color: inkColor,
-          place_id: placeId,
+          place_id: resolvedPlaceId,
           country,
           serial_number: loadLocalEntries().length + 1,
           claim_method: claimMethod,
+          owner_reply: null,
+          owner_replied_at: null,
           created_at: new Date().toISOString(),
         });
         setSavedEntryId(entryId);
@@ -343,7 +397,7 @@ function CheckInFlow() {
         points_earned: pointsEarned,
         stamp_image_url: stampUrl,
         ink_color: inkColor,
-        place_id: placeId,
+        place_id: resolvedPlaceId,
         country,
         claim_method: claimMethod,
       });
@@ -370,7 +424,7 @@ function CheckInFlow() {
     }
 
     const supabase = getBrowserSupabaseClient();
-    const placeId = selectedPlace?.id ?? synthesizePlaceId(restaurantName, coords);
+    const resolvedPlaceId = placeId ?? synthesizePlaceId(restaurantName, coords);
 
     let photoUrl: string | null = null;
     if (photo) {
@@ -386,7 +440,7 @@ function CheckInFlow() {
     await supabase.from("moments").insert({
       entry_id: savedEntryId,
       user_id: userId,
-      place_id: placeId,
+      place_id: resolvedPlaceId,
       photo_url: photoUrl,
       note: note || null,
     });

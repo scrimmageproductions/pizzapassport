@@ -90,6 +90,7 @@ export default function PassportStoryExporter({
         dataUrl,
         restaurantName: entry.restaurant_name,
         profileUrl,
+        entryId: entry.id,
       });
       setToast(SHARE_OUTCOME_MESSAGES[outcome.method]);
     } finally {

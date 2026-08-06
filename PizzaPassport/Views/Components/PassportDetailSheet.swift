@@ -47,6 +47,9 @@ struct PassportDetailSheet: View {
             photoFrames
             badges
             goldPlateRating
+            if let ownerReply = entry.ownerReply {
+                ownerReplyCard(ownerReply)
+            }
             actions
         }
         .padding(20)
@@ -88,11 +91,30 @@ struct PassportDetailSheet: View {
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .tracking(3)
                     .foregroundStyle(Self.leatherBrown.opacity(0.6))
-                Text(entry.restaurant.name)
-                    .font(.system(.title2, design: .serif).weight(.bold))
-                    .foregroundStyle(Self.leatherBrown)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                HStack(spacing: 6) {
+                    Text(entry.restaurant.name)
+                        .font(.system(.title2, design: .serif).weight(.bold))
+                        .foregroundStyle(Self.leatherBrown)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    if entry.isVerifiedVenue {
+                        Label("Verified", systemImage: "checkmark.seal.fill")
+                            .font(.system(size: 9, weight: .bold))
+                            .tracking(0.3)
+                            .foregroundStyle(Color(red: 0.11, green: 0.07, blue: 0.01))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(
+                                Capsule().fill(
+                                    LinearGradient(
+                                        colors: [Color(red: 0.976, green: 0.890, blue: 0.627), Self.goldDeep],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                            )
+                    }
+                }
                 if !locationLabel.isEmpty {
                     Label(locationLabel, systemImage: "mappin.circle.fill")
                         .font(.system(size: 11, weight: .semibold))
@@ -211,6 +233,31 @@ struct PassportDetailSheet: View {
         if diff >= 1 { return .full }
         if diff >= 0.5 { return .half }
         return .empty
+    }
+
+    /// A tinted parchment card for the pizzeria owner's official response to
+    /// this check-in — mirrors the web's `PassportEntryCard.tsx` treatment
+    /// (label + icon, reply text, no timestamp shown to the customer).
+    private func ownerReplyCard(_ reply: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label("OFFICIAL PIZZERIA RESPONSE", systemImage: "text.bubble.fill")
+                .font(.system(size: 10, weight: .bold))
+                .tracking(0.5)
+                .foregroundStyle(Self.goldDeep)
+            Text(reply)
+                .font(.system(size: 14))
+                .foregroundStyle(Self.leatherBrown.opacity(0.9))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Self.goldDeep.opacity(0.1))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Self.goldDeep.opacity(0.3), lineWidth: 1)
+        )
     }
 
     private var actions: some View {

@@ -24,6 +24,13 @@ struct PizzaEntry: Identifiable, Codable, Hashable, Sendable {
     /// automatically at init unless a remote value is passed in explicitly
     /// (e.g. when hydrating a `RemoteEntry` that already has one).
     var pointsEarned: Int
+    /// Set only via the `submit_owner_reply` RPC (see
+    /// schema_merchants.sql) — never written directly from this app.
+    var ownerReply: String?
+    var ownerRepliedAt: Date?
+    /// True if this venue has a verified `merchants` row at check-in
+    /// hydration time — see `SupabaseService.fetchVerifiedPlaceIDs`.
+    var isVerifiedVenue: Bool
 
     /// Points awarded for a base check-in (venue + selfie photo) — mirrors
     /// the `entries.points_earned` default in schema.sql.
@@ -43,7 +50,10 @@ struct PizzaEntry: Identifiable, Codable, Hashable, Sendable {
         actionPhotoData: Data,
         menuPhotoData: Data? = nil,
         stampImageData: Data,
-        pointsEarned: Int? = nil
+        pointsEarned: Int? = nil,
+        ownerReply: String? = nil,
+        ownerRepliedAt: Date? = nil,
+        isVerifiedVenue: Bool = false
     ) {
         self.id = id
         self.restaurant = restaurant
@@ -57,6 +67,9 @@ struct PizzaEntry: Identifiable, Codable, Hashable, Sendable {
         self.menuPhotoData = menuPhotoData
         self.stampImageData = stampImageData
         self.pointsEarned = pointsEarned ?? Self.baseCheckInPoints + (menuPhotoData != nil ? Self.menuPhotoBonusPoints : 0)
+        self.ownerReply = ownerReply
+        self.ownerRepliedAt = ownerRepliedAt
+        self.isVerifiedVenue = isVerifiedVenue
     }
 
     var plateRatingText: String { String(format: "%.1f", rating) }

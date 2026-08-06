@@ -14,6 +14,8 @@
  * download as the universal fallback.
  */
 
+import { getBrowserSupabaseClient } from "./supabase/client";
+
 export const PIZZA_PASSPORT_WEB_ORIGIN = "https://pizzapassport.vercel.app";
 
 export function buildProfileUrl(username: string): string {
@@ -93,6 +95,18 @@ export async function copyImageToClipboard(dataUrl: string): Promise<boolean> {
 
 export type SharePlatform = "instagram" | "snapchat" | "x" | "facebook" | "system";
 
+/** Fire-and-forget insert into `public.story_share_events`, powering the
+ * merchant dashboard's "Total Story Shares" metric. Never throws — a
+ * failed metrics ping should never surface as a broken share button. */
+async function recordStoryShare(entryId: string, platform: SharePlatform): Promise<void> {
+  try {
+    const supabase = getBrowserSupabaseClient();
+    await supabase.from("story_share_events").insert({ entry_id: entryId, platform });
+  } catch {
+    // Non-critical — the share itself already happened.
+  }
+}
+
 export interface ShareOutcome {
   platform: SharePlatform;
   /** What actually happened, so the UI can show an accurate toast instead
@@ -107,10 +121,11 @@ export interface ShareOutcome {
  */
 export async function shareStoryImage(
   platform: SharePlatform,
-  params: { dataUrl: string; restaurantName: string; profileUrl: string }
+  params: { dataUrl: string; restaurantName: string; profileUrl: string; entryId: string }
 ): Promise<ShareOutcome> {
   const filename = `pizza-passport-${params.restaurantName.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.png`;
   const file = await dataUrlToFile(params.dataUrl, filename);
+  void recordStoryShare(params.entryId, platform);
 
   switch (platform) {
     case "instagram":

@@ -13,6 +13,12 @@ export interface StampOptions {
    * that fallback has real content instead of just an icon. */
   fallbackRestaurantName?: string;
   fallbackLocation?: string;
+  /** 0 (heavily worn, sparse ink) .. 1 (dense, near-solid ink coverage).
+   * Defaults to 0.6. Exposed for the merchant stamp customizer
+   * (`/biz/stamp`) — the default check-in flow never sets this. */
+  textureDensity?: number;
+  /** 0 (crisp edges) .. 1 (heavy ink bleed/blur). Defaults to 0.3. */
+  edgeDistress?: number;
 }
 
 /** Deterministic string -> 32-bit seed, so a restaurant name/id always
@@ -103,6 +109,8 @@ export async function generateInkStamp(
   const size = options.size ?? 512;
   const inkColor = options.inkColor ?? "red";
   const seed = options.seed ?? seedFromString(imageUrl);
+  const textureDensity = options.textureDensity ?? 0.6;
+  const edgeDistress = options.edgeDistress ?? 0.3;
 
   try {
     const image = await loadImage(imageUrl);
@@ -144,9 +152,12 @@ export async function generateInkStamp(
         const posterized = inkAmount > 0.35 ? 1 : 0;
 
         // Multiply the silhouette by noise so ink only "takes" on part of
-        // the surface, like a worn rubber stamp pad.
+        // the surface, like a worn rubber stamp pad. `threshold` is where
+        // `textureDensity` comes in — lower threshold = more of the noise
+        // field counts as "inked", i.e. denser coverage.
         const grunge = noise(px / size, py / size) * 0.6 + 0.4;
-        const alpha = posterized * (grunge > 0.45 ? 1 : grunge / 0.45) * 255;
+        const threshold = 0.15 + (1 - textureDensity) * 0.6;
+        const alpha = posterized * (grunge > threshold ? 1 : grunge / threshold) * 255;
 
         data[i] = r;
         data[i + 1] = g;
@@ -156,12 +167,13 @@ export async function generateInkStamp(
     }
     baseCtx.putImageData(imageData, 0, 0);
 
-    // 6. Ink bleed: a touch of blur softens the hard pixel edges.
+    // 6. Ink bleed: blur softens the hard pixel edges — `edgeDistress`
+    // controls how much.
     const bleed = document.createElement("canvas");
     bleed.width = size;
     bleed.height = size;
     const bleedCtx = bleed.getContext("2d")!;
-    bleedCtx.filter = "blur(1.2px)";
+    bleedCtx.filter = `blur(${(0.4 + edgeDistress * 3).toFixed(2)}px)`;
     bleedCtx.drawImage(base, 0, 0);
 
     // 7. Seeded random rotation, like a hand-pressed stamp that never

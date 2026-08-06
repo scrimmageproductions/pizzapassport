@@ -33,6 +33,11 @@ export interface LocalEntry {
   country: string | null;
   serial_number: number;
   claim_method: ClaimMethod;
+  /** Offline entries never have a merchant reply — always null. Present
+   * so `LocalEntry` stays assignable to `Entry` wherever both render
+   * through the same components. */
+  owner_reply: null;
+  owner_replied_at: null;
   created_at: string;
   moment_note?: string;
   moment_photo_url?: string;

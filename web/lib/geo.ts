@@ -15,6 +15,11 @@ export interface NearbyPlace {
   lng: number;
   address?: string;
   distanceMeters: number;
+  /** The venue's own website, when the source tagged one — only OSM/
+   * Overpass results populate this today. Used by the merchant claim flow
+   * (`/biz/claim`) for a domain-match auto-verify check; never shown to
+   * consumers. */
+  website?: string;
 }
 
 export interface ReverseGeocodeResult {
@@ -183,6 +188,7 @@ async function searchOverpassPizzerias(coords: Coordinates, radiusMeters: number
           [element.tags?.["addr:housenumber"], element.tags?.["addr:street"]].filter(Boolean).join(" ") ||
           undefined,
         distanceMeters: haversineDistanceMeters(coords, { lat: element.lat, lng: element.lon }),
+        website: element.tags?.["website"] ?? element.tags?.["contact:website"] ?? undefined,
       });
     }
     return places;
