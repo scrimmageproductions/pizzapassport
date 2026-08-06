@@ -12,6 +12,17 @@
 	<string>Pizza Passport uses your location to help you find and tag nearby pizzerias when checking in.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<!-- Required for SocialShareManager's canOpenURL/open checks (see
+	     Utilities/SocialShareManager.swift) to detect these apps and deep
+	     link into them at all — without a scheme listed here, iOS treats
+	     it as never installed regardless of reality. -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>instagram-stories</string>
+		<string>snapchat</string>
+		<string>twitter</string>
+		<string>fb</string>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

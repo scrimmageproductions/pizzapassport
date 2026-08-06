@@ -15,6 +15,8 @@ struct StoryExporterView: View {
     @State private var layout: StoryLayout = .classic
     @State private var renderedImage: UIImage?
     @State private var isExporting = false
+    @State private var showingActivitySheet = false
+    @State private var activityItems: [Any] = []
 
     var body: some View {
         NavigationStack {
@@ -29,6 +31,20 @@ struct StoryExporterView: View {
 
                 layoutSwitcher
                 paletteSwitcher
+
+                VStack(spacing: 10) {
+                    Text("SHARE YOUR PASSPORT")
+                        .font(.caption2.weight(.bold))
+                        .tracking(1)
+                        .foregroundStyle(PizzaTheme.mozzarellaCream.opacity(0.5))
+                    ShareSheetActionGrid(
+                        onInstagram: { share { SocialShareManager.shareToInstagramStories(image: $0, profileURL: store.publicProfileURL) } },
+                        onSnapchat: { share { SocialShareManager.shareToSnapchat(image: $0) } },
+                        onX: { share { SocialShareManager.shareToX(image: $0, restaurantName: entry.restaurant.name, profileURL: store.publicProfileURL) } },
+                        onFacebook: { share { SocialShareManager.shareToFacebook(image: $0, profileURL: store.publicProfileURL) } }
+                    )
+                }
+                .padding(.horizontal)
 
                 HStack(spacing: 16) {
                     if let renderedImage {
@@ -63,8 +79,25 @@ struct StoryExporterView: View {
             .task(id: "\(palette.rawValue)-\(layout.rawValue)") {
                 renderedImage = renderCanvas()
             }
+            .sheet(isPresented: $showingActivitySheet) {
+                ActivityView(items: activityItems)
+            }
         }
         .preferredColorScheme(.dark)
+    }
+
+    /// Runs a `SocialShareManager` call against the currently-rendered
+    /// story image, presenting the system share sheet if that platform's
+    /// app isn't installed and no web fallback could be opened either.
+    private func share(_ action: (UIImage) -> SocialShareResult) {
+        guard let image = renderedImage ?? renderCanvas() else { return }
+        switch action(image) {
+        case .openedApp, .openedWebFallback:
+            break
+        case .needsSystemShareSheet(let items):
+            activityItems = items
+            showingActivitySheet = true
+        }
     }
 
     // MARK: - Canvas
@@ -295,6 +328,64 @@ enum StoryPalette: String, CaseIterable, Identifiable {
         case .mozzarella: PizzaTheme.mozzarellaCream
         case .basil: PizzaTheme.basilGreen
         case .charcoal: PizzaTheme.charcoalBlack
+        }
+    }
+}
+
+/// Branded one-tap buttons for Instagram Stories, Snapchat, X, and
+/// Facebook, backed by `SocialShareManager`.
+private struct ShareSheetActionGrid: View {
+    let onInstagram: () -> Void
+    let onSnapchat: () -> Void
+    let onX: () -> Void
+    let onFacebook: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ShareBadgeButton(
+                emoji: "📸",
+                label: "Instagram",
+                colors: [
+                    Color(red: 0.996, green: 0.855, blue: 0.459),
+                    Color(red: 0.839, green: 0.161, blue: 0.463),
+                    Color(red: 0.310, green: 0.357, blue: 0.835),
+                ],
+                action: onInstagram
+            )
+            ShareBadgeButton(emoji: "👻", label: "Snapchat", colors: [Color(red: 1, green: 0.988, blue: 0)], textColor: .black, action: onSnapchat)
+            ShareBadgeButton(emoji: "𝕏", label: "X", colors: [Color(red: 0.06, green: 0.06, blue: 0.06)], action: onX)
+            ShareBadgeButton(emoji: "🟦", label: "Facebook", colors: [Color(red: 0.094, green: 0.467, blue: 0.949)], action: onFacebook)
+        }
+    }
+}
+
+private struct ShareBadgeButton: View {
+    let emoji: String
+    let label: String
+    let colors: [Color]
+    var textColor: Color = .white
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Text(emoji).font(.title3)
+                Text(label).font(.caption2.weight(.bold))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .foregroundStyle(textColor)
+            .background(badgeBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+    }
+
+    @ViewBuilder
+    private var badgeBackground: some View {
+        if colors.count > 1 {
+            LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+        } else {
+            colors.first ?? Color.gray
         }
     }
 }
