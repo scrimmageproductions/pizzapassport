@@ -1,0 +1,17 @@
+{
+    "format_version": 2,
+    "header": {
+        "name": "Strawberry Collection",
+        "description": "Official Strawberry Avatar skins for Minecraft Bedrock Edition.",
+        "uuid": "33ea5c6b-bb7c-4610-9715-2fd7286256cb",
+        "version": [1, 0, 0],
+        "min_engine_version": [1, 16, 0]
+    },
+    "modules": [
+        {
+            "type": "skin_pack",
+            "uuid": "08d26992-7e8c-4432-b374-ad5f5e1b43ab",
+            "version": [1, 0, 0]
+        }
+    ]
+}

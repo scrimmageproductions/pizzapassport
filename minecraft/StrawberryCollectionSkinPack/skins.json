@@ -1,0 +1,24 @@
+{
+    "skins": [
+        {
+            "localization_name": "Strawberry Classic",
+            "geometry": "geometry.humanoid.custom",
+            "texture": "strawberry_classic.png",
+            "type": "free"
+        },
+        {
+            "localization_name": "Strawberry Slim",
+            "geometry": "geometry.humanoid.customSlim",
+            "texture": "strawberry_slim.png",
+            "type": "free"
+        },
+        {
+            "localization_name": "Strawberry Cap Edition",
+            "geometry": "geometry.humanoid.custom",
+            "texture": "strawberry_cap.png",
+            "type": "free"
+        }
+    ],
+    "serialize_name": "strawberry_collection",
+    "localization_name": "Strawberry Collection"
+}
